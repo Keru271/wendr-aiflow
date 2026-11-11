@@ -11,9 +11,9 @@
     "dev": "tsc -w"
   },
   "dependencies": {
-    "@fixpilot/shared": "*",
-    "@fixpilot/schemas": "*",
-    "@fixpilot/observability": "*",
+    "@fixpilot/shared": "^1.0.0",
+    "@fixpilot/schemas": "^1.0.0",
+    "@fixpilot/observability": "^1.0.0",
     "simple-git": "^3.27.0"
   },
   "devDependencies": {

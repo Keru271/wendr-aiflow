@@ -13,7 +13,7 @@
     "seed": "tsx src/seed.ts"
   },
   "dependencies": {
-    "@fixpilot/shared": "*",
+    "@fixpilot/shared": "^1.0.0",
     "@prisma/client": "^6.4.1"
   },
   "devDependencies": {

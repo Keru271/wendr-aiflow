@@ -11,8 +11,8 @@
     "dev": "tsc -w"
   },
   "dependencies": {
-    "@fixpilot/shared": "*",
-    "@fixpilot/database": "*"
+    "@fixpilot/shared": "^1.0.0",
+    "@fixpilot/database": "^1.0.0"
   },
   "devDependencies": {
     "typescript": "^5.7.2"
