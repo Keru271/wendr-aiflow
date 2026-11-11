@@ -1,0 +1,40 @@
+{
+  "name": "fixpilot",
+  "version": "1.0.0",
+  "description": "FixPilot - AI-Powered Autonomous Bug-Fixing & Deployment Platform",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "workers/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "start:api": "npm --workspace=apps/api run start",
+    "dev:api": "npm --workspace=apps/api run dev",
+    "dev:dashboard": "npm --workspace=apps/dashboard run dev",
+    "start:workers": "npm --workspace=workers/orchestrator run start",
+    "prisma:generate": "npm --workspace=packages/database run generate",
+    "prisma:push": "npm --workspace=packages/database run db:push",
+    "seed": "npm --workspace=packages/database run seed",
+    "demo:e2e": "tsx scripts/demo-e2e.ts"
+  },
+  "keywords": [
+    "ai-agent",
+    "bug-fix",
+    "antigravity",
+    "jira",
+    "github",
+    "automation",
+    "autonomous-coding"
+  ],
+  "author": "FixPilot Team",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
+

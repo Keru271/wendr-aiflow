@@ -1,0 +1,64 @@
+"$schema" = "https://open-api.netlify.com/netlify.schema.json"
+
+# ==============================================================================
+# FixPilot — Netlify Production Deployment Configuration
+# ==============================================================================
+
+[build]
+  command = "npm run build"
+  publish = "apps/dashboard/.next"
+  environment = { NODE_VERSION = "22", NPM_FLAGS = "--legacy-peer-deps" }
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  external_node_modules = ["@prisma/client", "prisma"]
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# ------------------------------------------------------------------------------
+# Routing & Redirects
+# ------------------------------------------------------------------------------
+
+# Route API endpoints to the Netlify Serverless Function handler
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+
+# Route Jira & GitHub Webhook endpoints to Netlify Serverless Function
+[[redirects]]
+  from = "/webhooks/*"
+  to = "/.netlify/functions/api/webhooks/:splat"
+  status = 200
+
+# Dedicated External Backend Proxy (Optional)
+# If running the Fastify API & BullMQ workers on Railway / Render / DigitalOcean:
+# [[redirects]]
+#   from = "/api/*"
+#   to = "https://your-fixpilot-backend.railway.app/:splat"
+#   status = 200
+#   force = true
+
+# ------------------------------------------------------------------------------
+# Context Configurations
+# ------------------------------------------------------------------------------
+
+[context.production]
+  environment = { NODE_ENV = "production" }
+
+[context.deploy-preview]
+  environment = { NODE_ENV = "preview" }
+
+# ------------------------------------------------------------------------------
+# Global Security Headers
+# ------------------------------------------------------------------------------
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"

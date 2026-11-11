@@ -1,0 +1,345 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  plan        String   @default("mvp_pilot")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members      OrganizationMember[]
+  projects     Project[]
+  integrations Integration[]
+  auditLogs    AuditLog[]
+  usageRecords UsageRecord[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships    OrganizationMember[]
+  projectMembers ProjectMember[]
+  approvals      Approval[]
+  auditLogs      AuditLog[]
+}
+
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  role           String       @default("DEVELOPER") // ORGANIZATION_OWNER, ADMIN, DEVELOPER, APPROVER, VIEWER
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+}
+
+model Project {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  key            String       // e.g. "WEB"
+  description    String?
+  settings       String?      // JSON stringified configuration
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members        ProjectMember[]
+  repositories   Repository[]
+  bugs           Bug[]
+  jobs           AgentJob[]
+
+  @@unique([organizationId, key])
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  role      String   @default("DEVELOPER")
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+model Integration {
+  id             String       @id @default(cuid())
+  organizationId String
+  provider       String       // "JIRA" | "GITHUB"
+  name           String
+  status         String       @default("CONNECTED") // CONNECTED, ERROR, REVOKED
+  configEncrypted String?     // Secret / config references
+  metadata       String?      // Non-sensitive details (account name, installation ID, etc.)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider])
+}
+
+model Repository {
+  id             String   @id @default(cuid())
+  projectId      String
+  githubRepoId   String
+  owner          String
+  name           String
+  defaultBranch  String   @default("main")
+  cloneUrl       String?
+  settings       String?  // JSON stringified commands & paths
+  createdAt      DateTime @default(now())
+
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, githubRepoId])
+}
+
+model Bug {
+  id              String   @id @default(cuid())
+  projectId       String
+  jiraIssueId     String
+  jiraIssueKey    String   // e.g. "WEB-1024"
+  title           String
+  description     String?
+  status          String   @default("Open")
+  priority        String?
+  labels          String   @default("[]") // JSON stringified array of strings
+  sourcePayload   String?  // Canonical payload from Jira
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  jobs            AgentJob[]
+
+  @@unique([projectId, jiraIssueId])
+}
+
+model WebhookReceipt {
+  id              String   @id @default(cuid())
+  provider        String   // "JIRA" | "GITHUB"
+  eventId         String?
+  deliveryId      String?
+  signature       String?
+  payloadSummary  String?
+  processed       Boolean  @default(false)
+  error           String?
+  receivedAt      DateTime @default(now())
+
+  @@index([provider, eventId])
+}
+
+model AgentJob {
+  id              String    @id @default(cuid())
+  projectId       String
+  bugId           String
+  status          String    @default("RECEIVED") // JobStatus enum string
+  idempotencyKey  String    @unique
+  retryCount      Int       @default(0)
+  maxRetries      Int       @default(3)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  failureReason   String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  bug             Bug              @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  executions      AgentExecution[]
+  workspaces      AgentWorkspace[]
+  logs            JobLog[]
+  validations     ValidationRun[]
+  pullRequest     PullRequest?
+  deployments     Deployment[]
+  approvals       Approval[]
+  artifacts       Artifact[]
+  usageRecords    UsageRecord[]
+
+  @@index([projectId, status])
+}
+
+model AgentExecution {
+  id              String    @id @default(cuid())
+  jobId           String
+  agentType       String    // "INVESTIGATOR" | "DEVELOPER" | "QA" | "REVIEWER"
+  provider        String    @default("GOOGLE_ANTIGRAVITY")
+  providerTaskId  String?
+  attempt         Int       @default(1)
+  status          String    // "started" | "completed" | "failed"
+  inputSummary    String?   // Redacted prompt or input
+  outputSummary   String?   // JSON output or structured findings
+  error           String?
+  usage           String?   // JSON usage stats (tokens, latency)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  job             AgentJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, agentType])
+}
+
+model AgentWorkspace {
+  id              String    @id @default(cuid())
+  jobId           String
+  directoryPath   String
+  branchName      String
+  baseSha         String?
+  headSha         String?
+  status          String    @default("ACTIVE") // ACTIVE, CLEANED, DESTROYED
+  createdAt       DateTime  @default(now())
+  destroyedAt     DateTime?
+
+  job             AgentJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+}
+
+model JobLog {
+  id          String   @id @default(cuid())
+  jobId       String
+  level       String   @default("INFO") // INFO, WARN, ERROR, DEBUG
+  stage       String   // e.g. "INVESTIGATION", "QA", "DEPLOYMENT"
+  message     String
+  metadata    String?  // JSON string
+  createdAt   DateTime @default(now())
+
+  job         AgentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, createdAt])
+}
+
+model ValidationRun {
+  id          String    @id @default(cuid())
+  jobId       String
+  name        String    // e.g. "Lint", "TypeCheck", "UnitTests", "Build"
+  command     String
+  status      String    @default("PENDING") // ValidationStatus enum
+  exitCode    Int?
+  durationMs  Int?
+  summary     String?
+  stdout      String?
+  stderr      String?
+  artifactKey String?
+  canRetry    Boolean   @default(true)
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  job         AgentJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, status])
+}
+
+model PullRequest {
+  id             String   @id @default(cuid())
+  jobId          String   @unique
+  githubPrId     String
+  number         Int
+  url            String
+  title          String
+  branchName     String
+  commitSha      String?
+  status         String   @default("OPEN") // OPEN, MERGED, CLOSED
+  mergedAt       DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  job            AgentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+}
+
+model Approval {
+  id          String    @id @default(cuid())
+  jobId       String
+  userId      String?
+  approverRole String   @default("APPROVER")
+  target      String    @default("PRODUCTION_DEPLOYMENT")
+  status      String    @default("APPROVED") // APPROVED, REJECTED, PENDING
+  comment     String?
+  ipAddress   String?
+  timestamp   DateTime  @default(now())
+
+  job         AgentJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  user        User?     @relation(fields: [userId], references: [id])
+}
+
+model Deployment {
+  id              String    @id @default(cuid())
+  jobId           String
+  environment     String    // "staging" | "production"
+  status          String    @default("PENDING") // DeploymentStatus enum
+  commitSha       String?
+  artifactDigest  String?
+  externalId      String?
+  approvedBy      String?
+  healthResult    String?   // JSON string of smoke/health checks
+  rollbackReason  String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  job             AgentJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, environment])
+}
+
+model Artifact {
+  id          String   @id @default(cuid())
+  jobId       String
+  name        String
+  kind        String   // "LOG", "PATCH", "REPORT", "TEST_RESULT"
+  storagePath String
+  sizeBytes   Int?
+  createdAt   DateTime @default(now())
+
+  job         AgentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String?
+  actorEmail     String?
+  action         String       // "JOB_TRIGGERED", "PROD_APPROVED", "CONFIG_CHANGED", etc.
+  targetType     String
+  targetId       String?
+  metadata       String?      // JSON string
+  ipAddress      String?
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?        @relation(fields: [userId], references: [id])
+}
+
+model UsageRecord {
+  id             String       @id @default(cuid())
+  organizationId String
+  jobId          String?
+  provider       String       // "GOOGLE_ANTIGRAVITY"
+  inputTokens    Int          @default(0)
+  outputTokens   Int          @default(0)
+  executionMs    Int          @default(0)
+  costInr        Float        @default(0.0)
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job            AgentJob?    @relation(fields: [jobId], references: [id])
+}
+

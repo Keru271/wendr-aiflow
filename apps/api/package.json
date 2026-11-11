@@ -1,0 +1,29 @@
+{
+  "name": "@fixpilot/api",
+  "version": "1.0.0",
+  "main": "./dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/server.ts",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "@fastify/jwt": "^9.0.2",
+    "@fastify/sensible": "^6.0.1",
+    "@fixpilot/database": "*",
+    "@fixpilot/github-client": "*",
+    "@fixpilot/jira-client": "*",
+    "@fixpilot/observability": "*",
+    "@fixpilot/schemas": "*",
+    "@fixpilot/shared": "*",
+    "@fixpilot/workers": "*",
+    "fastify": "^5.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
+
