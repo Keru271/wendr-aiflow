@@ -36,10 +36,30 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [job, setJob] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [startingFix, setStartingFix] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [approving, setApproving] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
   const [approvalComment, setApprovalComment] = useState('Production deployment verified by release lead.');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  const handleRetryJob = async () => {
+    setRetrying(true);
+    setActionMessage('🔄 Retrying job with Google Antigravity...');
+    try {
+      const res = await fetch(`/api/jobs/${params.id}/retry`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setActionMessage('✅ Job retry initiated! Antigravity is re-executing.');
+        await fetchJob();
+      } else {
+        setActionMessage(`❌ Error retrying job: ${data.error}`);
+      }
+    } catch (err: any) {
+      setActionMessage(`❌ Error: ${err.message}`);
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const handleStopProcess = async () => {
     if (!confirm(`Are you sure you want to stop the autonomous process for ${job?.bug?.jiraIssueKey || params.id}?`)) {
@@ -313,6 +333,18 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Retry Job button if job is failed or cancelled */}
+          {['FAILED', 'CANCELLED'].includes(job.status) && (
+            <button
+              onClick={handleRetryJob}
+              disabled={retrying}
+              className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-md shadow-indigo-500/20 disabled:opacity-50 transition-colors"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${retrying ? 'animate-spin' : ''}`} />
+              <span>{retrying ? 'Retrying...' : 'Retry Job'}</span>
+            </button>
+          )}
+
           {/* Stop Process button if job is active */}
           {!['COMPLETED', 'FAILED', 'CANCELLED', 'ROLLED_BACK'].includes(job.status) && (
             <button
@@ -427,6 +459,45 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           })}
         </div>
       </div>
+
+      {/* FAILED OR CANCELLED BANNER - ONE CLICK RETRY */}
+      {['FAILED', 'CANCELLED'].includes(job.status) && (
+        <div className="p-5 rounded-2xl border border-rose-500/40 bg-gradient-to-r from-rose-950/40 via-slate-900 to-amber-950/30 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                  {job.status === 'CANCELLED' ? 'Execution Cancelled' : 'Execution Failed'}
+                </span>
+                {job.retryCount > 0 && (
+                  <span className="text-xs text-slate-400">
+                    Retried {job.retryCount} time{job.retryCount > 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+              <h4 className="text-sm font-bold text-white mt-1">
+                {job.status === 'CANCELLED'
+                  ? 'Process stopped by user'
+                  : (job.failureReason || 'An error occurred during autonomous execution')}
+              </h4>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Click &quot;Retry Job&quot; to reset the workspace, re-run root cause analysis, and retry the automated fix pipeline.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleRetryJob}
+            disabled={retrying}
+            className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-lg shadow-indigo-500/25 flex items-center gap-2 shrink-0 disabled:opacity-50 transition-all hover:scale-[1.02]"
+          >
+            <RotateCcw className={`w-4 h-4 ${retrying ? 'animate-spin' : ''}`} />
+            <span>{retrying ? 'Retrying...' : 'Retry Job'}</span>
+          </button>
+        </div>
+      )}
 
       {/* QUEUED BANNER - ONE CLICK PICKUP */}
       {isQueued && (

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { orchestrator } from '@/lib/orchestrator';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     await orchestrator.retryJob(params.id);

@@ -714,25 +714,44 @@ export class Orchestrator {
   }
 
   /**
-   * Retry failed job
+   * Retry failed or cancelled job
    */
   async retryJob(jobId: string): Promise<void> {
-    const job = await db.agentJob.findUnique({ where: { id: jobId } });
+    const job = await db.agentJob.findUnique({
+      where: { id: jobId },
+      include: { bug: true }
+    });
     if (!job) throw new Error(`Job ${jobId} not found`);
 
-    if (job.retryCount >= job.maxRetries) {
-      throw new Error(`Job ${jobId} exceeded maximum retry limit (${job.maxRetries})`);
+    const nextRetryCount = job.retryCount + 1;
+    const nextMaxRetries = Math.max(job.maxRetries, nextRetryCount + 3);
+
+    // Clean up any stale workspaces on disk from previous failed run
+    const workspaces = await db.agentWorkspace.findMany({ where: { jobId } });
+    for (const ws of workspaces) {
+      await workspaceManager.destroyWorkspace(ws.jobId).catch(() => {});
     }
+    await workspaceManager.destroyWorkspace(jobId).catch(() => {});
 
     await db.agentJob.update({
       where: { id: jobId },
       data: {
-        retryCount: job.retryCount + 1,
-        failureReason: null
+        retryCount: nextRetryCount,
+        maxRetries: nextMaxRetries,
+        failureReason: null,
+        completedAt: null
       }
     });
 
-    await this.transitionStatus(jobId, JobStatus.QUEUED, { retryAttempt: job.retryCount + 1 });
+    await this.transitionStatus(jobId, JobStatus.QUEUED, { retryAttempt: nextRetryCount });
+
+    if (job.bug?.jiraIssueKey) {
+      await jiraClient.addComment(
+        job.bug.jiraIssueKey,
+        `🔄 **[Google Antigravity]** Retry initiated for issue \`${job.bug.jiraIssueKey}\` (Attempt #${nextRetryCount}). Re-executing autonomous investigation and patch pipeline.`
+      ).catch(() => {});
+    }
+
     // Trigger run asynchronously
     this.runJob(jobId).catch(err => {
       logger.error(`Failed during retry run: ${err.message}`, err, { jobId });

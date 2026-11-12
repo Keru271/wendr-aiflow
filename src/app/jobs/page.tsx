@@ -16,7 +16,8 @@ import {
   FolderKanban,
   Sparkles,
   Square,
-  Trash2
+  Trash2,
+  RotateCcw
 } from 'lucide-react';
 import JiraSyncModal from '@/components/JiraSyncModal';
 
@@ -25,6 +26,7 @@ export default function JobsPage() {
   const [filter, setFilter] = useState('ALL');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
   const [isJiraModalOpen, setIsJiraModalOpen] = useState(false);
 
   const fetchJobs = async () => {
@@ -73,6 +75,26 @@ export default function JobsPage() {
       }
     } catch (err: any) {
       alert(`Error deleting issue: ${err.message}`);
+    }
+  };
+
+  const handleRetryJob = async (jobId: string, issueKey: string) => {
+    try {
+      setRetryingJobId(jobId);
+      const res = await fetch(`/api/jobs/${jobId}/retry`, { method: 'POST' });
+      if (res.ok) {
+        setJobs((prev) =>
+          prev.map((j) => (j.id === jobId ? { ...j, status: 'QUEUED' } : j))
+        );
+        fetchJobs();
+      } else {
+        const data = await res.json();
+        alert(`Failed to retry job: ${data.error}`);
+      }
+    } catch (err: any) {
+      alert(`Error retrying job: ${err.message}`);
+    } finally {
+      setRetryingJobId(null);
     }
   };
 
@@ -240,6 +262,18 @@ export default function JobsPage() {
                   </td>
                   <td className="py-4 px-5 text-right">
                     <div className="flex items-center justify-end gap-1.5">
+                      {['FAILED', 'CANCELLED'].includes(job.status) && (
+                        <button
+                          onClick={() => handleRetryJob(job.id, job.bug?.jiraIssueKey || job.id)}
+                          disabled={retryingJobId === job.id}
+                          title="Retry Failed / Cancelled Job"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 text-indigo-400 font-medium text-xs transition-colors disabled:opacity-50"
+                        >
+                          <RotateCcw className={`w-3 h-3 ${retryingJobId === job.id ? 'animate-spin' : ''}`} />
+                          <span className="hidden sm:inline">{retryingJobId === job.id ? 'Retrying...' : 'Retry'}</span>
+                        </button>
+                      )}
+
                       {!['COMPLETED', 'FAILED', 'CANCELLED', 'ROLLED_BACK'].includes(job.status) && (
                         <button
                           onClick={() => handleStopProcess(job.id, job.bug?.jiraIssueKey || job.id)}
