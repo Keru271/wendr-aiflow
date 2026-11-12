@@ -108,7 +108,16 @@ export class WorkspaceManager {
     return { directoryPath: dir, branchName, git };
   }
 
-  async pushBranch(jobId: string, branchName: string, authedRemoteUrl?: string | null): Promise<void> {
+  async pushBranch(
+    jobId: string,
+    branchName: string,
+    authedRemoteUrl?: string | null,
+    options?: {
+      repoOwner?: string;
+      repoName?: string;
+      commitMessage?: string;
+    }
+  ): Promise<void> {
     const dir = this.getWorkspacePath(jobId);
     if (!fs.existsSync(dir)) {
       throw new Error(`Workspace directory does not exist for job ${jobId}`);
@@ -132,20 +141,70 @@ export class WorkspaceManager {
         stage: 'WORKSPACE'
       });
     } catch (gitErr: any) {
-      await logger.warn(`Git CLI push failed (${gitErr.message}). Falling back to GitHub REST API branch creation...`, {
+      await logger.warn(`Git CLI push failed (${gitErr.message}). Falling back to GitHub REST API commit/branch creation...`, {
         jobId,
         stage: 'WORKSPACE'
       });
     }
 
-    // Fallback: If git CLI push failed (e.g. serverless container without git binary), ensure branch via GitHub API
-    if (!pushSuccess && authedRemoteUrl) {
-      const remoteCreated = await githubClient.ensureRemoteBranch(authedRemoteUrl, branchName);
-      if (remoteCreated) {
-        await logger.info(`Branch ${branchName} successfully ensured via GitHub API for job ${jobId}`, {
-          jobId,
-          stage: 'WORKSPACE'
-        });
+    // Fallback: If git CLI push failed (e.g. serverless container without git binary), commit and push via GitHub REST API
+    if (!pushSuccess) {
+      let owner = options?.repoOwner;
+      let name = options?.repoName;
+
+      if ((!owner || !name) && authedRemoteUrl) {
+        const match = authedRemoteUrl.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
+        if (match) {
+          owner = match[1];
+          name = match[2].replace(/\.git$/, '');
+        }
+      }
+
+      if (owner && name) {
+        // Collect files from workspace to commit
+        const filesToPush: Array<{ path: string; content: string }> = [];
+        const walkFiles = (current: string) => {
+          try {
+            const entries = fs.readdirSync(current, { withFileTypes: true });
+            for (const entry of entries) {
+              if (['node_modules', '.git', '.next', 'dist', 'build'].includes(entry.name)) continue;
+              const full = path.join(current, entry.name);
+              if (entry.isDirectory()) {
+                walkFiles(full);
+              } else if (entry.isFile()) {
+                if (/\.(ts|tsx|js|jsx|json|md|css|html)$/i.test(entry.name)) {
+                  try {
+                    const rel = path.relative(dir, full).replace(/\\/g, '/');
+                    const content = fs.readFileSync(full, 'utf8');
+                    filesToPush.push({ path: rel, content });
+                  } catch {}
+                }
+              }
+            }
+          } catch {}
+        };
+
+        walkFiles(dir);
+
+        if (filesToPush.length > 0) {
+          const commitSha = await githubClient.commitFilesToBranch({
+            repoOwner: owner,
+            repoName: name,
+            branchName,
+            files: filesToPush,
+            commitMessage: options?.commitMessage || `fix: autonomous code fix for ${branchName}`
+          });
+          if (commitSha) {
+            await logger.info(`Branch ${branchName} successfully committed (${commitSha}) via GitHub API for job ${jobId}`, {
+              jobId,
+              stage: 'WORKSPACE'
+            });
+          }
+        } else if (authedRemoteUrl) {
+          await githubClient.ensureRemoteBranch(authedRemoteUrl, branchName);
+        }
+      } else if (authedRemoteUrl) {
+        await githubClient.ensureRemoteBranch(authedRemoteUrl, branchName);
       }
     }
   }
