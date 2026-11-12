@@ -153,6 +153,43 @@ export class JiraClient {
 
   async transitionStatus(issueKey: string, targetStatus: string): Promise<boolean> {
     await logger.info(`Transitioning Jira issue ${issueKey} to status: "${targetStatus}"`, { stage: 'JIRA' });
+
+    if (this.authHeader && !this.host.includes('mock') && !this.host.includes('localhost') && !this.host.includes('your-company')) {
+      try {
+        // Fetch available transitions for this issue
+        const transRes = await fetch(`${this.host}/rest/api/3/issue/${issueKey}/transitions`, {
+          headers: {
+            Authorization: this.authHeader,
+            Accept: 'application/json'
+          }
+        });
+
+        if (transRes.ok) {
+          const transData = await transRes.json();
+          const targetLower = targetStatus.toLowerCase().trim();
+          const match = (transData.transitions || []).find((t: any) =>
+            t.name.toLowerCase() === targetLower ||
+            (targetLower === 'done' && (t.name.toLowerCase().includes('done') || t.name.toLowerCase().includes('resolve') || t.name.toLowerCase().includes('close'))) ||
+            (targetLower === 'in progress' && (t.name.toLowerCase().includes('progress') || t.name.toLowerCase().includes('start')))
+          );
+
+          if (match) {
+            const applyRes = await fetch(`${this.host}/rest/api/3/issue/${issueKey}/transitions`, {
+              method: 'POST',
+              headers: {
+                Authorization: this.authHeader,
+                'Content-Type': 'application/json',
+                Accept: 'application/json'
+              },
+              body: JSON.stringify({ transition: { id: match.id } })
+            });
+            return applyRes.ok;
+          }
+        }
+      } catch (err: any) {
+        logger.warn(`Failed to transition Jira issue ${issueKey}: ${err.message}`);
+      }
+    }
     return true;
   }
 
@@ -162,6 +199,39 @@ export class JiraClient {
 
   async addComment(issueKey: string, commentBody: string): Promise<boolean> {
     await logger.info(`Added comment to Jira issue ${issueKey}: ${commentBody.slice(0, 80)}...`, { stage: 'JIRA' });
+
+    if (this.authHeader && !this.host.includes('mock') && !this.host.includes('localhost') && !this.host.includes('your-company')) {
+      try {
+        const res = await fetch(`${this.host}/rest/api/3/issue/${issueKey}/comment`, {
+          method: 'POST',
+          headers: {
+            Authorization: this.authHeader,
+            'Content-Type': 'application/json',
+            Accept: 'application/json'
+          },
+          body: JSON.stringify({
+            body: {
+              type: 'doc',
+              version: 1,
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [
+                    {
+                      type: 'text',
+                      text: commentBody
+                    }
+                  ]
+                }
+              ]
+            }
+          })
+        });
+        return res.ok;
+      } catch (err: any) {
+        logger.warn(`Failed to post comment to Jira issue ${issueKey}: ${err.message}`);
+      }
+    }
     return true;
   }
 

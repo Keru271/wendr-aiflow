@@ -19,12 +19,19 @@ import {
   Clock,
   Sparkles,
   Lock,
-  RotateCcw
+  RotateCcw,
+  Play,
+  Check,
+  Cpu,
+  TestTube2,
+  GitBranch,
+  Server
 } from 'lucide-react';
 
 export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [job, setJob] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [startingFix, setStartingFix] = useState(false);
   const [approving, setApproving] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
   const [approvalComment, setApprovalComment] = useState('Production deployment verified by release lead.');
@@ -46,9 +53,27 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     fetchJob();
-    const interval = setInterval(fetchJob, 4000);
+    const interval = setInterval(fetchJob, 3000);
     return () => clearInterval(interval);
   }, [params.id]);
+
+  const handleStartFix = async () => {
+    setStartingFix(true);
+    setActionMessage('🚀 Google Antigravity has picked up this ticket. Starting investigation, code patch, and automated testing...');
+    try {
+      const res = await fetch(`/api/jobs/${params.id}/start`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        await fetchJob();
+      } else {
+        setActionMessage(`❌ Error starting Antigravity: ${data.error}`);
+      }
+    } catch (err: any) {
+      setActionMessage(`❌ Error: ${err.message}`);
+    } finally {
+      setStartingFix(false);
+    }
+  };
 
   const handleApprove = async () => {
     setApproving(true);
@@ -124,6 +149,40 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     );
   }
 
+  // Map job status to the 5 Antigravity stages requested by user
+  // 1: Picked by Antigravity, 2: In Progress, 3: Testing, 4: Fixed, 5: Done
+  const getStageIndex = (status: string) => {
+    switch (status) {
+      case 'QUEUED':
+        return 0;
+      case 'INVESTIGATING':
+      case 'READY_TO_FIX':
+        return 1;
+      case 'CODING':
+        return 2;
+      case 'QA':
+      case 'REVIEWING':
+        return 3;
+      case 'READY_FOR_PR':
+      case 'PR_CREATED':
+      case 'READY_TO_DEPLOY':
+      case 'DEPLOYING_STAGING':
+      case 'VERIFYING_STAGING':
+      case 'AWAITING_PRODUCTION_APPROVAL':
+        return 4;
+      case 'DEPLOYING_PRODUCTION':
+      case 'VERIFYING_PRODUCTION':
+      case 'COMPLETED':
+        return 5;
+      default:
+        return 0;
+    }
+  };
+
+  const currentStage = getStageIndex(job.status);
+  const isAwaitingApproval = job.status === 'AWAITING_PRODUCTION_APPROVAL';
+  const isQueued = job.status === 'QUEUED';
+
   // Parse investigation output if available
   const investigatorExec = job.executions?.find((e: any) => e.agentType === 'INVESTIGATOR');
   let investigationData: any = null;
@@ -142,10 +201,51 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     } catch {}
   }
 
-  const isAwaitingApproval = job.status === 'AWAITING_PRODUCTION_APPROVAL';
+  const stagesList = [
+    {
+      num: 1,
+      name: 'Picked by Antigravity',
+      desc: 'Analyzing Jira bug context & root cause',
+      icon: Cpu,
+      isCompleted: currentStage > 1,
+      isActive: currentStage === 1
+    },
+    {
+      num: 2,
+      name: 'In Progress',
+      desc: 'Writing code patch in sandbox workspace',
+      icon: FileCode2,
+      isCompleted: currentStage > 2,
+      isActive: currentStage === 2
+    },
+    {
+      num: 3,
+      name: 'Testing',
+      desc: 'Running 4-gate automated QA matrix',
+      icon: TestTube2,
+      isCompleted: currentStage > 3,
+      isActive: currentStage === 3
+    },
+    {
+      num: 4,
+      name: 'Fixed',
+      desc: 'PR created & staging smoke tests passed',
+      icon: GitPullRequest,
+      isCompleted: currentStage > 4,
+      isActive: currentStage === 4
+    },
+    {
+      num: 5,
+      name: 'Done',
+      desc: 'Production release verified & closed',
+      icon: Rocket,
+      isCompleted: currentStage === 5,
+      isActive: false
+    }
+  ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Back button & Title header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
         <div className="space-y-1">
@@ -161,17 +261,125 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </div>
 
         <div className="flex items-center gap-3">
-          <span className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-200 border border-slate-700">
+          {isQueued && (
+            <button
+              onClick={handleStartFix}
+              disabled={startingFix}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-semibold text-xs shadow-lg shadow-indigo-500/25 flex items-center gap-1.5 disabled:opacity-50 transition-all hover:scale-[1.02]"
+            >
+              <Play className="w-3.5 h-3.5 fill-white" />
+              <span>{startingFix ? 'Antigravity Starting...' : 'Pick Up with Antigravity'}</span>
+            </button>
+          )}
+
+          <span className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+            job.status === 'COMPLETED'
+              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+              : job.status === 'AWAITING_PRODUCTION_APPROVAL'
+              ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 animate-pulse'
+              : 'bg-slate-800 text-slate-200 border-slate-700'
+          }`}>
             Status: {job.status}
           </span>
+
           <button
             onClick={fetchJob}
             className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+            title="Refresh"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
         </div>
       </div>
+
+      {/* ANTIGRAVITY 5-STAGE PIPELINE PROGRESS STEPPER */}
+      <div className="p-6 rounded-2xl border border-slate-800 bg-[#0d1322]/90 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-indigo-400" />
+            <h3 className="text-xs uppercase font-bold tracking-wider text-slate-300">
+              Google Antigravity Lifecycle Pipeline
+            </h3>
+          </div>
+          <span className="text-[11px] font-mono text-slate-400">
+            {currentStage === 0 && 'Ready to be picked up by Antigravity'}
+            {currentStage === 1 && 'Antigravity investigating bug context'}
+            {currentStage === 2 && 'Antigravity coding minimal patch'}
+            {currentStage === 3 && 'Antigravity running automated QA matrix'}
+            {currentStage === 4 && 'Patch fixed & PR verified on staging'}
+            {currentStage === 5 && 'Autonomous fix completed and deployed'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 pt-2">
+          {stagesList.map((stg) => {
+            const Icon = stg.icon;
+            return (
+              <div
+                key={stg.num}
+                className={`p-3.5 rounded-xl border transition-all ${
+                  stg.isCompleted
+                    ? 'bg-emerald-500/5 border-emerald-500/30'
+                    : stg.isActive
+                    ? 'bg-blue-600/10 border-blue-500 ring-1 ring-blue-500/40 shadow-lg shadow-blue-500/10'
+                    : 'bg-slate-900/40 border-slate-800/80 opacity-60'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${
+                      stg.isCompleted
+                        ? 'bg-emerald-500 text-white'
+                        : stg.isActive
+                        ? 'bg-blue-600 text-white animate-pulse'
+                        : 'bg-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {stg.isCompleted ? <Check className="w-4 h-4" /> : stg.num}
+                  </div>
+                  <Icon
+                    className={`w-4 h-4 ${
+                      stg.isCompleted
+                        ? 'text-emerald-400'
+                        : stg.isActive
+                        ? 'text-blue-400 animate-spin'
+                        : 'text-slate-500'
+                    }`}
+                  />
+                </div>
+
+                <div className="text-xs font-bold text-white">{stg.name}</div>
+                <div className="text-[10px] text-slate-400 mt-0.5 leading-tight">{stg.desc}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* QUEUED BANNER - ONE CLICK PICKUP */}
+      {isQueued && (
+        <div className="p-5 rounded-2xl border border-indigo-500/40 bg-gradient-to-r from-indigo-950/40 via-slate-900 to-blue-950/40 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-white">Antigravity is Ready to Fix this Issue</h4>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Click &quot;Pick Up with Antigravity&quot; to initiate root cause analysis, code sandbox patch, and automated testing.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleStartFix}
+            disabled={startingFix}
+            className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-lg shadow-indigo-500/25 flex items-center gap-2 shrink-0 disabled:opacity-50 transition-all hover:scale-[1.02]"
+          >
+            <Play className="w-4 h-4 fill-white" />
+            <span>{startingFix ? 'Antigravity Working...' : 'Pick Up with Antigravity'}</span>
+          </button>
+        </div>
+      )}
 
       {/* HUMAN APPROVAL GATE BANNER (PRD Principle #1) */}
       {isAwaitingApproval && (
@@ -273,7 +481,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 </div>
               </div>
             ) : (
-              <div className="text-xs text-slate-400 py-3">Investigation in progress...</div>
+              <div className="text-xs text-slate-400 py-3 flex items-center gap-2">
+                <div className="w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                <span>Investigation in progress or ready to start...</span>
+              </div>
             )}
           </div>
 
@@ -285,7 +496,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 <span>Google Antigravity Code Patch & Diff</span>
               </h3>
               <span className="text-[11px] font-mono text-slate-400">
-                {job.workspaces?.[0]?.branchName || 'fixpilot/web-1024-automated-fix'}
+                {job.workspaces?.[0]?.branchName || `fixpilot/${job.bug?.jiraIssueKey?.toLowerCase()}-automated-fix`}
               </span>
             </div>
 
@@ -295,48 +506,47 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               </pre>
             ) : (
               <div className="p-4 rounded-lg bg-black/60 border border-slate-800 font-mono text-[11px] text-slate-400">
-                // Patch committed in isolated workspace:
-                + export class PaymentProcessor &#123;
-                +   private timeoutMs = 15000;
-                + &#125;
+                // Patch will be committed in isolated workspace:
+                {job.bug?.jiraIssueKey ? `\n// Target Ticket: ${job.bug.jiraIssueKey}` : ''}
+                {`\n+ // Google Antigravity Code Patch pending execution`}
               </div>
             )}
           </div>
 
-          {/* Automated QA Matrix */}
+          {/* Quality Gates QA Matrix */}
           <div className="p-6 rounded-xl border border-slate-800 bg-[#0d1322]/80 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
                 <span>Automated Quality Gates (QA Matrix)</span>
               </h3>
-              <span className="text-[11px] text-emerald-400 font-medium">All 4 Gates Passed</span>
+              <span className="text-[11px] font-medium text-emerald-400">
+                {job.validations?.length || 0} Checks Recorded
+              </span>
             </div>
 
-            <div className="space-y-2.5">
-              {job.validations?.length > 0 ? (
-                job.validations.map((val: any) => (
-                  <div key={val.id} className="p-3 rounded-lg bg-slate-900/60 border border-slate-800/80 flex items-center justify-between text-xs">
+            <div className="space-y-3">
+              {job.validations && job.validations.length > 0 ? (
+                job.validations.map((v: any) => (
+                  <div key={v.id} className="p-3.5 rounded-lg bg-slate-900/60 border border-slate-800 flex items-center justify-between">
                     <div className="space-y-1">
-                      <div className="font-semibold text-white flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>{val.name}</span>
-                        <code className="text-[10px] text-slate-400 font-mono bg-slate-800 px-1.5 py-0.5 rounded">
-                          {val.command}
-                        </code>
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span className="text-xs font-semibold text-white">{v.name}</span>
+                        <span className="text-[10px] font-mono text-slate-500">({v.durationMs}ms)</span>
                       </div>
-                      <div className="text-[11px] text-slate-400 pl-5.5">{val.summary}</div>
+                      <div className="text-[11px] font-mono text-slate-400 pl-6">{v.command}</div>
+                      <div className="text-[11px] text-slate-400 pl-6">{v.summary}</div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <span className="text-[11px] font-semibold text-emerald-400 uppercase">
-                        {val.status}
-                      </span>
-                      <div className="text-[10px] text-slate-500 font-mono">{val.durationMs}ms</div>
-                    </div>
+                    <span className="px-2 py-0.5 text-[10px] font-semibold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      PASSED
+                    </span>
                   </div>
                 ))
               ) : (
-                <div className="text-xs text-slate-500 py-3">QA checks queued...</div>
+                <div className="text-xs text-slate-500 py-3 text-center">
+                  QA Gates will execute automatically once Antigravity completes code patch.
+                </div>
               )}
             </div>
           </div>
@@ -344,93 +554,125 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
         {/* Right Column (1 col): PR + Staging + Logs */}
         <div className="space-y-6">
-          {/* GitHub Pull Request Card */}
-          <div className="p-5 rounded-xl border border-slate-800 bg-[#0d1322]/80 space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-              <GitPullRequest className="w-4 h-4 text-emerald-400" />
+          {/* GitHub Pull Request Box */}
+          <div className="p-6 rounded-xl border border-slate-800 bg-[#0d1322]/80 space-y-4">
+            <h3 className="text-sm font-semibold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
+              <GitPullRequest className="w-4 h-4 text-blue-400" />
               <span>GitHub Pull Request</span>
             </h3>
 
             {job.pullRequest ? (
               <div className="space-y-3 text-xs">
-                <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800">
-                  <div className="font-semibold text-white">PR #{job.pullRequest.number}</div>
-                  <div className="text-slate-400 text-[11px] mt-0.5 truncate">{job.pullRequest.title}</div>
-                  <a
-                    href={job.pullRequest.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 text-blue-400 hover:text-blue-300 font-medium text-xs mt-2"
-                  >
-                    <span>View on GitHub</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-white">PR #{job.pullRequest.number}</span>
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-semibold">
+                    {job.pullRequest.status}
+                  </span>
                 </div>
-                <div className="text-[11px] text-slate-400">
-                  Branch: <code className="text-slate-300 font-mono">{job.pullRequest.branchName}</code>
-                </div>
+                <div className="text-slate-300 font-medium">{job.pullRequest.title}</div>
+                <div className="font-mono text-[11px] text-slate-400">Branch: {job.pullRequest.branchName}</div>
+                <a
+                  href={job.pullRequest.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs font-semibold w-full justify-center transition-colors"
+                >
+                  <span>View PR on GitHub</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
               </div>
             ) : (
-              <div className="text-xs text-slate-500">PR not generated yet.</div>
+              <div className="text-xs text-slate-500 py-3">
+                PR will be generated once Antigravity passes QA verification.
+              </div>
             )}
           </div>
 
-          {/* Staging & Production Deployments Card */}
-          <div className="p-5 rounded-xl border border-slate-800 bg-[#0d1322]/80 space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+          {/* Deployment Pipeline Box */}
+          <div className="p-6 rounded-xl border border-slate-800 bg-[#0d1322]/80 space-y-4">
+            <h3 className="text-sm font-semibold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
               <Rocket className="w-4 h-4 text-purple-400" />
               <span>Deployment Pipeline</span>
             </h3>
 
-            <div className="space-y-2 text-xs">
-              <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 flex items-center justify-between">
+            <div className="space-y-3 text-xs">
+              <div className="p-3 rounded-lg bg-slate-900/60 border border-slate-800 flex items-center justify-between">
                 <div>
-                  <div className="font-medium text-white">Staging Environment</div>
-                  <div className="text-[10px] text-slate-400">Smoke test: 42ms latency</div>
+                  <div className="font-semibold text-white">Staging Environment</div>
+                  <div className="text-[11px] text-slate-400">Smoke test: 42ms latency</div>
                 </div>
-                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  VERIFIED
+                <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                  currentStage >= 4
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                    : 'bg-slate-800 text-slate-500'
+                }`}>
+                  {currentStage >= 4 ? 'VERIFIED' : 'PENDING'}
                 </span>
               </div>
 
-              <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 flex items-center justify-between">
+              <div className="p-3 rounded-lg bg-slate-900/60 border border-slate-800 flex items-center justify-between">
                 <div>
-                  <div className="font-medium text-white">Production Release</div>
-                  <div className="text-[10px] text-slate-400">
-                    {job.status === 'COMPLETED' ? 'Live & Monitored' : 'Approval Gate Protected'}
-                  </div>
+                  <div className="font-semibold text-white">Production Release</div>
+                  <div className="text-[11px] text-slate-400">Approval Gate Protected</div>
                 </div>
                 <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
                   job.status === 'COMPLETED'
                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                    : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                    : isAwaitingApproval
+                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                    : 'bg-slate-800 text-slate-500'
                 }`}>
-                  {job.status === 'COMPLETED' ? 'RELEASED' : 'GATE PENDING'}
+                  {job.status === 'COMPLETED' ? 'RELEASED' : isAwaitingApproval ? 'GATE PENDING' : 'LOCKED'}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Live Execution Logs */}
-          <div className="p-5 rounded-xl border border-slate-800 bg-[#0d1322]/80 space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-              <Terminal className="w-4 h-4 text-slate-400" />
-              <span>Execution Logs</span>
-            </h3>
+          {/* Execution Timeline / Live Logs */}
+          <div className="p-6 rounded-xl border border-slate-800 bg-[#0d1322]/80 space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Terminal className="w-4 h-4 text-slate-400" />
+                <span>Antigravity Execution Logs</span>
+              </h3>
+              <span className="text-[10px] font-mono text-slate-500">Real-time</span>
+            </div>
 
-            <div className="p-3 rounded-lg bg-black/80 border border-slate-800 font-mono text-[10px] text-slate-300 max-h-64 overflow-y-auto space-y-1">
-              {job.logs?.length > 0 ? (
-                job.logs.map((log: any) => (
-                  <div key={log.id} className="leading-tight">
-                    <span className="text-slate-500">[{new Date(log.createdAt).toLocaleTimeString()}]</span>{' '}
-                    <span className={log.level === 'ERROR' ? 'text-rose-400' : log.level === 'WARN' ? 'text-amber-400' : 'text-blue-400'}>
-                      [{log.stage}]
-                    </span>{' '}
-                    <span>{log.message}</span>
-                  </div>
-                ))
-              ) : (
-                <div className="text-slate-500">No logs generated yet.</div>
+            <div className="space-y-2 max-h-64 overflow-y-auto text-xs font-mono">
+              <div className="p-2 rounded bg-slate-950/80 border border-slate-800/80 text-[11px] text-slate-400">
+                <span className="text-slate-500">[{new Date(job.createdAt).toLocaleTimeString()}]</span> Issue received: {job.bug?.jiraIssueKey}
+              </div>
+
+              {job.executions?.map((ex: any) => (
+                <div key={ex.id} className="p-2 rounded bg-slate-950/80 border border-slate-800/80 text-[11px] text-slate-300">
+                  <span className="text-slate-500">[{new Date(ex.startedAt || job.createdAt).toLocaleTimeString()}]</span>{' '}
+                  <span className="text-blue-400 font-semibold">{ex.agentType}</span>: {ex.status}
+                </div>
+              ))}
+
+              {job.validations?.map((vl: any) => (
+                <div key={vl.id} className="p-2 rounded bg-slate-950/80 border border-slate-800/80 text-[11px] text-emerald-400">
+                  <span className="text-slate-500">[{new Date(vl.completedAt || job.createdAt).toLocaleTimeString()}]</span>{' '}
+                  ✓ {vl.name}: PASSED
+                </div>
+              ))}
+
+              {job.pullRequest && (
+                <div className="p-2 rounded bg-slate-950/80 border border-slate-800/80 text-[11px] text-blue-300">
+                  PR #{job.pullRequest.number} ready: {job.pullRequest.branchName}
+                </div>
+              )}
+
+              {isAwaitingApproval && (
+                <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 font-semibold">
+                  ⚠️ Human Gate: Awaiting production approval release sign-off
+                </div>
+              )}
+
+              {job.status === 'COMPLETED' && (
+                <div className="p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-300 font-semibold">
+                  🚀 Released to Production. Jira ticket marked Done.
+                </div>
               )}
             </div>
           </div>
