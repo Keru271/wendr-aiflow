@@ -30,7 +30,7 @@ export class GitHubClient {
 
   constructor() {
     this.token = process.env.GITHUB_TOKEN;
-    this.webhookSecret = process.env.GITHUB_WEBHOOK_SECRET || 'github-secret-key-12345';
+    this.webhookSecret = process.env.GITHUB_WEBHOOK_SECRET || 'dev-github-secret-key';
   }
 
   verifyWebhookSignature(payload: string, signatureHeader?: string): boolean {

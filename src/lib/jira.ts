@@ -22,7 +22,7 @@ export class JiraClient {
 
   constructor() {
     this.host = process.env.JIRA_HOST || 'https://fixpilot.atlassian.net';
-    this.webhookSecret = process.env.JIRA_WEBHOOK_SECRET || 'jira-secret-key-12345';
+    this.webhookSecret = process.env.JIRA_WEBHOOK_SECRET || 'dev-jira-secret-key';
     if (process.env.JIRA_EMAIL && process.env.JIRA_API_TOKEN) {
       this.authHeader = 'Basic ' + Buffer.from(`${process.env.JIRA_EMAIL}:${process.env.JIRA_API_TOKEN}`).toString('base64');
     }
