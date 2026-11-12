@@ -229,54 +229,30 @@ describe('PaymentProcessor', () => {
       }
     }
 
-    // 2. Scan and repair syntax errors, bracket imbalances, merge conflicts, or missing exports in src/
+    // 2. Scan and repair targeted issues without corrupting healthy files
     const srcDir = path.join(workDir, 'src');
     if (fs.existsSync(srcDir)) {
-      const walkAndFix = (currentDir: string) => {
+      const walkAndClean = (currentDir: string) => {
         const entries = fs.readdirSync(currentDir, { withFileTypes: true });
         for (const entry of entries) {
           const fullPath = path.join(currentDir, entry.name);
           if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== '.git') {
-            walkAndFix(fullPath);
+            walkAndClean(fullPath);
           } else if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.js') || entry.name.endsWith('.tsx') || entry.name.endsWith('.jsx'))) {
             let code = fs.readFileSync(fullPath, 'utf8');
             let modified = false;
+
+            // Remove rogue dangling tokens at the end of files (e.g. `));` or unmatched `}`)
+            if (code.trim().endsWith('));') && !code.includes('createContext') && !code.includes('memo(')) {
+              code = code.replace(/\n\s*\)\);\s*$/, '\n');
+              modified = true;
+            }
 
             // Remove merge conflict markers if present
             if (code.includes('<<<<<<<') || code.includes('=======')) {
               code = code.replace(/<{7}[^\n]*\n/g, '')
                          .replace(/={7}\n/g, '')
                          .replace(/>{7}[^\n]*\n/g, '');
-              modified = true;
-            }
-
-            // Fix bracket/brace imbalances
-            const openBraces = (code.match(/{/g) || []).length;
-            const closeBraces = (code.match(/}/g) || []).length;
-            if (openBraces > closeBraces) {
-              code += '\n' + '}'.repeat(openBraces - closeBraces) + '\n';
-              modified = true;
-            } else if (closeBraces > openBraces) {
-              let diffCount = closeBraces - openBraces;
-              while (diffCount > 0 && code.trim().endsWith('}')) {
-                const lastIdx = code.lastIndexOf('}');
-                code = code.slice(0, lastIdx) + code.slice(lastIdx + 1);
-                diffCount--;
-                modified = true;
-              }
-            }
-
-            // Fix parenthesis imbalances
-            const openParens = (code.match(/\(/g) || []).length;
-            const closeParens = (code.match(/\)/g) || []).length;
-            if (openParens > closeParens) {
-              code += '\n' + ')'.repeat(openParens - closeParens) + ';\n';
-              modified = true;
-            }
-
-            // Fix broken or empty import statements
-            if (/import\s+.*\s+from\s*['"]\s*['"]/g.test(code)) {
-              code = code.replace(/from\s*['"]\s*['"]/g, "from './app'");
               modified = true;
             }
 
@@ -300,7 +276,7 @@ describe('PaymentProcessor', () => {
           }
         }
       };
-      walkAndFix(srcDir);
+      walkAndClean(srcDir);
     }
 
     // 3. Commit the autonomous build fix to git

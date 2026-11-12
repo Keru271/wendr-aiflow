@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as ts from 'typescript';
 import { exec } from 'child_process';
 import simpleGit, { SimpleGit } from 'simple-git';
 import { logger } from '../observability';
@@ -243,14 +244,14 @@ export class WorkspaceManager {
   }
 
   /**
-   * Perform syntactic and balance validation on source files
+   * Perform syntactic and compiler AST validation on source files
    */
   validateCodeSyntax(dir: string): string[] {
     const errors: string[] = [];
     const walk = (current: string) => {
       const entries = fs.readdirSync(current, { withFileTypes: true });
       for (const entry of entries) {
-        if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.next' || entry.name === 'dist') continue;
+        if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.next' || entry.name === 'dist' || entry.name === 'out') continue;
         const full = path.join(current, entry.name);
         if (entry.isDirectory()) {
           walk(full);
@@ -266,31 +267,48 @@ export class WorkspaceManager {
             }
           }
 
-          // TS/JS syntax check
+          // TypeScript / JavaScript AST syntax validation
           if (/\.(ts|tsx|js|jsx)$/i.test(entry.name)) {
             try {
               const code = fs.readFileSync(full, 'utf8');
+              const isTsx = /\.tsx$/i.test(entry.name);
+              const isJsx = /\.jsx$/i.test(entry.name);
+              const isJs = /\.js$/i.test(entry.name);
 
-              // Check brace balance
-              const openBraces = (code.match(/{/g) || []).length;
-              const closeBraces = (code.match(/}/g) || []).length;
-              if (openBraces !== closeBraces) {
-                errors.push(`Syntax Error in ${rel}: Unbalanced braces (${openBraces} opening '{' vs ${closeBraces} closing '}')`);
-              }
+              const scriptKind = isTsx
+                ? ts.ScriptKind.TSX
+                : isJsx
+                ? ts.ScriptKind.JSX
+                : isJs
+                ? ts.ScriptKind.JS
+                : ts.ScriptKind.TS;
 
-              // Check parenthesis balance
-              const openParens = (code.match(/\(/g) || []).length;
-              const closeParens = (code.match(/\)/g) || []).length;
-              if (openParens !== closeParens) {
-                errors.push(`Syntax Error in ${rel}: Unbalanced parentheses (${openParens} opening '(' vs ${closeParens} closing ')')`);
+              const sourceFile = ts.createSourceFile(
+                full,
+                code,
+                ts.ScriptTarget.Latest,
+                true,
+                scriptKind
+              );
+
+              const parseDiagnostics: any[] = (sourceFile as any).parseDiagnostics || [];
+              if (parseDiagnostics.length > 0) {
+                for (const diag of parseDiagnostics) {
+                  const message = typeof diag.messageText === 'string'
+                    ? diag.messageText
+                    : diag.messageText?.messageText || 'Syntax error';
+                  const pos = diag.start !== undefined ? sourceFile.getLineAndCharacterOfPosition(diag.start) : null;
+                  const lineInfo = pos ? `:${pos.line + 1}:${pos.character + 1}` : '';
+                  errors.push(`Syntax Error in ${rel}${lineInfo}: ${message}`);
+                }
               }
 
               // Check for empty or broken imports
               if (/import\s+.*\s+from\s*['"]\s*['"]/g.test(code)) {
                 errors.push(`Compilation Error in ${rel}: Empty import module specifier`);
               }
-            } catch {
-              // ignore
+            } catch (err: any) {
+              errors.push(`Parser Error in ${rel}: ${err.message}`);
             }
           }
         }

@@ -420,13 +420,18 @@ export class Orchestrator {
               `✅ **[Google Antigravity]** Build issue resolved successfully on \`${repo.name}\`. Build verified. Now pushing feature branch and raising PR.`
             );
           } else {
-            await logger.warn(`[Pre-Push Gate] Build warning persisted on ${repo.name}: ${prePushBuild.error}`, { jobId });
+            await logger.error(`[Pre-Push Gate] HALTING: Refusing to push broken build to ${repo.name}: ${prePushBuild.error}`, { jobId });
+            await jiraClient.addComment(
+              job.bug.jiraIssueKey,
+              `🛑 **[Google Antigravity]** Build verification failed on \`${repo.name}\`:\n\`\`\`\n${prePushBuild.error?.slice(0, 300)}\n\`\`\`\nPush aborted to protect repository from broken builds.`
+            );
+            throw new Error(`Pre-push build check failed for repository ${repo.name}: ${prePushBuild.error}`);
           }
         } else {
           await logger.info(`[Pre-Push Gate] Build check passed cleanly for ${repo.name}. Pushing feature branch to GitHub...`, { jobId });
         }
 
-        // Push feature branch to GitHub remote repository before creating PR
+        // Push feature branch to GitHub remote repository ONLY when build passes!
         try {
           let authedRemoteUrl = repo.cloneUrl;
           if (cleanToken && authedRemoteUrl?.startsWith('https://github.com/')) {
