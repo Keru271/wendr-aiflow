@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a" />
+      <stop offset="100%" stop-color="#4f46e5" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#bgGrad)" />
+  <!-- Antenna -->
+  <circle cx="256" cy="115" r="24" fill="#ffffff" />
+  <rect x="246" y="125" width="20" height="55" rx="10" fill="#ffffff" />
+  <!-- Head -->
+  <rect x="136" y="175" width="240" height="190" rx="48" fill="#ffffff" />
+  <!-- Visor / Screen -->
+  <rect x="166" y="215" width="180" height="110" rx="28" fill="#090d16" />
+  <!-- Glowing Eyes -->
+  <circle cx="210" cy="270" r="22" fill="#38bdf8" />
+  <circle cx="302" cy="270" r="22" fill="#38bdf8" />
+  <!-- Sparkle Accent -->
+  <path d="M380 140 L386 160 L406 166 L386 172 L380 192 L374 172 L354 166 L374 160 Z" fill="#60a5fa" />
+</svg>

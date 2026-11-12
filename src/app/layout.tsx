@@ -1,6 +1,7 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import Link from 'next/link';
+import PWARegister from '@/components/PWARegister';
 import { 
   Bot, 
   Layers, 
@@ -17,7 +18,31 @@ import {
 
 export const metadata: Metadata = {
   title: 'FixPilot | Autonomous Bug-Fixing & Deployment Platform',
-  description: 'Jira → AI Investigation → Antigravity Coding Agent → QA Matrix → GitHub PR → Human Approval → Production Deployment'
+  description: 'Jira → AI Investigation → Antigravity Coding Agent → QA Matrix → GitHub PR → Human Approval → Production Deployment',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'FixPilot'
+  },
+  icons: {
+    icon: [
+      { url: '/icons/icon.svg', type: 'image/svg+xml' },
+      { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' }
+    ],
+    apple: [
+      { url: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }
+    ]
+  }
+};
+
+export const viewport: Viewport = {
+  themeColor: '#0d1322',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false
 };
 
 export default function RootLayout({
@@ -27,7 +52,16 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+        <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+        <meta name="theme-color" content="#0d1322" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+      </head>
       <body className="bg-[#090d16] text-slate-100 min-h-screen flex antialiased selection:bg-blue-600 selection:text-white">
+        <PWARegister />
         {/* Navigation Sidebar */}
         <aside className="w-64 border-r border-slate-800 bg-[#0d1322]/80 backdrop-blur-xl flex flex-col shrink-0 fixed inset-y-0 z-30">
           {/* Logo & Brand */}
