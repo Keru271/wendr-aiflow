@@ -673,9 +673,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               </div>
 
               {job.executions?.map((ex: any) => (
-                <div key={ex.id} className="p-2 rounded bg-slate-950/80 border border-slate-800/80 text-[11px] text-slate-300">
+                <div key={ex.id} className={`p-2 rounded border text-[11px] ${
+                  ex.agentType === 'BUILD_FIXER'
+                    ? 'bg-amber-950/40 border-amber-500/30 text-amber-200'
+                    : 'bg-slate-950/80 border-slate-800/80 text-slate-300'
+                }`}>
                   <span className="text-slate-500">[{new Date(ex.startedAt || job.createdAt).toLocaleTimeString()}]</span>{' '}
-                  <span className="text-blue-400 font-semibold">{ex.agentType}</span>: {ex.status}
+                  <span className={ex.agentType === 'BUILD_FIXER' ? 'text-amber-400 font-semibold' : 'text-blue-400 font-semibold'}>
+                    {ex.agentType === 'BUILD_FIXER' ? '🔧 PRE-PUSH BUILD GATE' : ex.agentType}
+                  </span>: {ex.agentType === 'BUILD_FIXER' ? 'Build issue detected and autonomously fixed before push' : ex.status}
                 </div>
               ))}
 

@@ -10,6 +10,12 @@ export interface AgentTaskStatus {
 export interface CodingAgentAdapter {
   name: string;
   runTask(input: AgentTaskInput): Promise<AgentTaskResult>;
+  fixBuildIssue?(input: {
+    jobId: string;
+    workingDirectory: string;
+    buildError: string;
+    repositoryName: string;
+  }): Promise<AgentTaskResult>;
   cancelTask?(taskId: string): Promise<void>;
   getStatus?(taskId: string): Promise<AgentTaskStatus>;
 }
