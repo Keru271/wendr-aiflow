@@ -108,12 +108,42 @@ export class Orchestrator {
 
       // 3. Stage: CODING in isolated workspace
       await this.transitionStatus(jobId, JobStatus.CODING);
-      const repo = job.project.repositories[0] || {
+
+      // Intelligent Multi-Repository Resolution
+      let repo = job.project.repositories[0] || {
         cloneUrl: 'https://github.com/fixpilot/core-service.git',
         defaultBranch: 'main',
         owner: 'fixpilot',
         name: 'core-service'
       };
+
+      if (job.project.repositories.length > 1) {
+        let labels: string[] = [];
+        try {
+          labels = JSON.parse(job.bug.labels || '[]');
+        } catch {
+          labels = [];
+        }
+        const textToSearch = `${job.bug.title} ${job.bug.description || ''} ${labels.join(' ')}`.toLowerCase();
+
+        // Match repo by label (e.g. "repo:auth-service" or "auth-service") or name mention
+        const matched = job.project.repositories.find((r) => {
+          const repoNameLower = r.name.toLowerCase();
+          const fullNameLower = `${r.owner}/${r.name}`.toLowerCase();
+          const hasLabel = labels.some(
+            (l) => l.toLowerCase() === repoNameLower || l.toLowerCase() === `repo:${repoNameLower}`
+          );
+          return hasLabel || textToSearch.includes(repoNameLower) || textToSearch.includes(fullNameLower);
+        });
+
+        if (matched) {
+          repo = matched;
+          await logger.info(`Target repository resolved to "${repo.owner}/${repo.name}" based on issue context`, {
+            jobId,
+            stage: 'ROUTING'
+          });
+        }
+      }
 
       const workspace = await workspaceManager.createWorkspace({
         jobId,
