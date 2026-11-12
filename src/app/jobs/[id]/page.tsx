@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { 
   Bot, 
   ArrowLeft, 
@@ -25,10 +26,13 @@ import {
   Cpu,
   TestTube2,
   GitBranch,
-  Server
+  Server,
+  Square,
+  Trash2
 } from 'lucide-react';
 
 export default function JobDetailPage({ params }: { params: { id: string } }) {
+  const router = useRouter();
   const [job, setJob] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [startingFix, setStartingFix] = useState(false);
@@ -36,6 +40,41 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [rollingBack, setRollingBack] = useState(false);
   const [approvalComment, setApprovalComment] = useState('Production deployment verified by release lead.');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  const handleStopProcess = async () => {
+    if (!confirm(`Are you sure you want to stop the autonomous process for ${job?.bug?.jiraIssueKey || params.id}?`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/jobs/${params.id}/cancel`, { method: 'POST' });
+      if (res.ok) {
+        setActionMessage('⏹️ Autonomous process was stopped by user.');
+        await fetchJob();
+      } else {
+        const data = await res.json();
+        setActionMessage(`❌ Failed to stop process: ${data.error}`);
+      }
+    } catch (err: any) {
+      setActionMessage(`❌ Error: ${err.message}`);
+    }
+  };
+
+  const handleDeleteIssue = async () => {
+    if (!confirm(`Are you sure you want to permanently delete issue ${job?.bug?.jiraIssueKey || params.id} and remove it from the dashboard?`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/jobs/${params.id}`, { method: 'DELETE' });
+      if (res.ok) {
+        router.push('/');
+      } else {
+        const data = await res.json();
+        alert(`Failed to delete issue: ${data.error}`);
+      }
+    } catch (err: any) {
+      alert(`Error deleting issue: ${err.message}`);
+    }
+  };
 
   const fetchJob = async () => {
     try {
@@ -274,6 +313,26 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Stop Process button if job is active */}
+          {!['COMPLETED', 'FAILED', 'CANCELLED', 'ROLLED_BACK'].includes(job.status) && (
+            <button
+              onClick={handleStopProcess}
+              className="px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 font-semibold text-xs flex items-center gap-1.5 transition-colors"
+            >
+              <Square className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+              <span>Stop Process</span>
+            </button>
+          )}
+
+          {/* Delete Issue button */}
+          <button
+            onClick={handleDeleteIssue}
+            className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 font-semibold text-xs flex items-center gap-1.5 transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Delete Issue</span>
+          </button>
+
           {isQueued && (
             <button
               onClick={handleStartFix}

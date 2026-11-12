@@ -19,7 +19,9 @@ import {
   ArrowRight,
   TrendingUp,
   Coins,
-  FolderKanban
+  FolderKanban,
+  Square,
+  Trash2
 } from 'lucide-react';
 import JiraSyncModal from '@/components/JiraSyncModal';
 
@@ -92,6 +94,48 @@ export default function DashboardPage() {
       setTriggerMessage(`❌ Error: ${err.message}`);
     } finally {
       setIsTriggering(false);
+    }
+  };
+
+  const handleStopProcess = async (jobId: string, issueKey: string) => {
+    if (!confirm(`Are you sure you want to stop the autonomous process for ${issueKey}?`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
+      if (res.ok) {
+        setJobs((prev) =>
+          prev.map((j) => (j.id === jobId ? { ...j, status: 'CANCELLED' } : j))
+        );
+        setTriggerMessage(`⏹️ Process stopped for ${issueKey}.`);
+      } else {
+        const data = await res.json();
+        alert(`Failed to stop process: ${data.error}`);
+      }
+    } catch (err: any) {
+      alert(`Error stopping process: ${err.message}`);
+    }
+  };
+
+  const handleDeleteIssue = async (jobId: string, issueKey: string) => {
+    if (!confirm(`Are you sure you want to permanently delete issue ${issueKey} and remove it from the dashboard?`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setJobs((prev) => prev.filter((j) => j.id !== jobId));
+        setStats((prev) => ({
+          ...prev,
+          activeJobs: Math.max(0, prev.activeJobs - 1)
+        }));
+        setTriggerMessage(`🗑️ Issue ${issueKey} was removed from the dashboard.`);
+      } else {
+        const data = await res.json();
+        alert(`Failed to delete issue: ${data.error}`);
+      }
+    } catch (err: any) {
+      alert(`Error deleting issue: ${err.message}`);
     }
   };
 
@@ -346,13 +390,36 @@ export default function DashboardPage() {
                       {new Date(job.updatedAt).toLocaleTimeString()}
                     </td>
                     <td className="py-3.5 px-5 text-right">
-                      <Link
-                        href={`/jobs/${job.id}`}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium transition-colors"
-                      >
-                        <span>Inspect</span>
-                        <ArrowRight className="w-3 h-3" />
-                      </Link>
+                      <div className="flex items-center justify-end gap-1.5">
+                        {/* Stop Process button if job is active */}
+                        {!['COMPLETED', 'FAILED', 'CANCELLED', 'ROLLED_BACK'].includes(job.status) && (
+                          <button
+                            onClick={() => handleStopProcess(job.id, job.bug?.jiraIssueKey || job.id)}
+                            title="Stop / Cancel Process"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 font-medium text-xs transition-colors"
+                          >
+                            <Square className="w-3 h-3 fill-amber-400 text-amber-400" />
+                            <span className="hidden sm:inline">Stop</span>
+                          </button>
+                        )}
+
+                        {/* Delete Issue button */}
+                        <button
+                          onClick={() => handleDeleteIssue(job.id, job.bug?.jiraIssueKey || job.id)}
+                          title="Delete Issue from Dashboard"
+                          className="inline-flex items-center gap-1 p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 hover:text-rose-300 font-medium text-xs transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+
+                        <Link
+                          href={`/jobs/${job.id}`}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium transition-colors"
+                        >
+                          <span>Inspect</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))

@@ -31,9 +31,18 @@ export class Orchestrator {
       data: {
         status: toStatus,
         updatedAt: new Date(),
-        ...(toStatus === JobStatus.COMPLETED ? { completedAt: new Date() } : {})
+        ...(toStatus === JobStatus.COMPLETED || toStatus === JobStatus.CANCELLED ? { completedAt: new Date() } : {})
       }
     });
+
+    if (toStatus === JobStatus.CANCELLED) {
+      const workspaces = await db.agentWorkspace.findMany({ where: { jobId } });
+      for (const ws of workspaces) {
+        await workspaceManager.destroyWorkspace(ws.jobId).catch(() => {});
+        await db.agentWorkspace.update({ where: { id: ws.id }, data: { status: 'DESTROYED' } }).catch(() => {});
+      }
+      await workspaceManager.destroyWorkspace(jobId).catch(() => {});
+    }
 
     await logger.info(`Status transition: ${currentStatus} -> ${toStatus}`, {
       jobId,
@@ -68,6 +77,11 @@ export class Orchestrator {
 
     if (!job) {
       throw new Error(`Job ${jobId} not found`);
+    }
+
+    if (job.status === JobStatus.CANCELLED) {
+      await logger.info(`Job ${jobId} is cancelled. Halting runJob.`, { jobId });
+      return;
     }
 
     try {
@@ -559,6 +573,11 @@ export class Orchestrator {
 
     if (!job) {
       throw new Error(`Job ${jobId} not found`);
+    }
+
+    if (job.status === JobStatus.CANCELLED) {
+      await logger.info(`Job ${jobId} is cancelled. Halting runJob.`, { jobId });
+      return;
     }
 
     if (job.status !== JobStatus.AWAITING_PRODUCTION_APPROVAL) {
