@@ -9,6 +9,7 @@ export interface WorkspaceConfig {
   jiraKey: string;
   repoCloneUrl?: string;
   baseBranch?: string;
+  githubToken?: string;
 }
 
 export class WorkspaceManager {
@@ -43,20 +44,46 @@ export class WorkspaceManager {
     }
     fs.mkdirSync(dir, { recursive: true });
 
+    let cloned = false;
+    const cleanToken = (config.githubToken || process.env.GITHUB_TOKEN || '').trim().replace(/^['"]|['"]$/g, '');
+
+    if (config.repoCloneUrl) {
+      try {
+        let authedCloneUrl = config.repoCloneUrl;
+        if (cleanToken && authedCloneUrl.startsWith('https://github.com/')) {
+          authedCloneUrl = authedCloneUrl.replace('https://github.com/', `https://${cleanToken}@github.com/`);
+        }
+        const baseBranch = config.baseBranch || 'master';
+        const rootGit = simpleGit();
+        await rootGit.clone(authedCloneUrl, dir, ['--depth', '1', '--branch', baseBranch]);
+        cloned = true;
+        await logger.info(`Successfully cloned ${config.repoCloneUrl} on branch ${baseBranch} into ${dir}`, {
+          jobId: config.jobId,
+          stage: 'WORKSPACE'
+        });
+      } catch (cloneErr: any) {
+        await logger.warn(`Workspace git clone failed: ${cloneErr.message}. Falling back to clean git init.`, {
+          jobId: config.jobId,
+          stage: 'WORKSPACE'
+        });
+      }
+    }
+
     const git = simpleGit(dir);
 
-    // Initialize repo or clone
-    await git.init();
+    if (!cloned) {
+      await git.init();
+      // Create a base file if empty
+      const readmePath = path.join(dir, 'README.md');
+      if (!fs.existsSync(readmePath)) {
+        fs.writeFileSync(readmePath, `# Repository Workspace for ${config.jiraKey}\n\nManaged by FixPilot.\n`);
+        await git.add('.');
+        await git.commit('Initial base commit');
+      }
+    }
+
     await git.addConfig('user.name', 'FixPilot Autonomous Agent');
     await git.addConfig('user.email', 'agent@fixpilot.ai');
-
-    // Create a base file if empty
-    const readmePath = path.join(dir, 'README.md');
-    if (!fs.existsSync(readmePath)) {
-      fs.writeFileSync(readmePath, `# Repository Workspace for ${config.jiraKey}\n\nManaged by FixPilot.\n`);
-      await git.add('.');
-      await git.commit('Initial base commit');
-    }
 
     // Checkout feature branch
     await git.checkoutLocalBranch(branchName);
@@ -67,6 +94,27 @@ export class WorkspaceManager {
     });
 
     return { directoryPath: dir, branchName, git };
+  }
+
+  async pushBranch(jobId: string, branchName: string, authedRemoteUrl?: string | null): Promise<void> {
+    const dir = this.getWorkspacePath(jobId);
+    if (!fs.existsSync(dir)) {
+      throw new Error(`Workspace directory does not exist for job ${jobId}`);
+    }
+    const git = simpleGit(dir);
+    if (authedRemoteUrl) {
+      const remotes = await git.getRemotes();
+      if (remotes.some((r) => r.name === 'origin')) {
+        await git.remote(['set-url', 'origin', authedRemoteUrl]);
+      } else {
+        await git.addRemote('origin', authedRemoteUrl);
+      }
+    }
+    await git.push('origin', branchName, ['--set-upstream', '--force']);
+    await logger.info(`Pushed branch ${branchName} to origin for job ${jobId}`, {
+      jobId,
+      stage: 'WORKSPACE'
+    });
   }
 
   async getDiff(jobId: string): Promise<string> {

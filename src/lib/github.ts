@@ -29,7 +29,8 @@ export class GitHubClient {
   private webhookSecret: string;
 
   constructor() {
-    this.token = process.env.GITHUB_TOKEN;
+    const raw = process.env.GITHUB_TOKEN;
+    this.token = raw ? raw.trim().replace(/^['"]|['"]$/g, '') : undefined;
     this.webhookSecret = process.env.GITHUB_WEBHOOK_SECRET || 'dev-github-secret-key';
   }
 
@@ -84,26 +85,28 @@ ${input.rollbackPlan || 'Revert this Pull Request or trigger 1-Click Rollback vi
     });
 
     const body = this.generatePrBody(input);
+    const cleanToken = (this.token || process.env.GITHUB_TOKEN || '').trim().replace(/^['"]|['"]$/g, '');
 
-    if (this.token && !this.token.includes('ghp_mock') && !this.token.includes('dummy')) {
+    if (cleanToken && !cleanToken.includes('ghp_mock') && !cleanToken.includes('dummy')) {
       try {
         const res = await fetch(`https://api.github.com/repos/${input.repoOwner}/${input.repoName}/pulls`, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${this.token}`,
+            Authorization: `Bearer ${cleanToken}`,
             Accept: 'application/vnd.github.v3+json',
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
             title: `fix(${input.jiraKey.toLowerCase()}): ${input.jiraSummary}`,
             head: input.branchName,
-            base: input.baseBranch,
+            base: input.baseBranch || 'master',
             body
           })
         });
 
         if (res.ok) {
           const pr = await res.json();
+          await logger.info(`GitHub Pull Request #${pr.number} created successfully: ${pr.html_url}`, { stage: 'GITHUB' });
           return {
             id: String(pr.id),
             number: pr.number,
@@ -114,14 +117,51 @@ ${input.rollbackPlan || 'Revert this Pull Request or trigger 1-Click Rollback vi
           };
         } else {
           const errText = await res.text();
-          logger.warn(`GitHub API returned non-200: ${errText}, falling back to simulated PR record`);
+          logger.warn(`GitHub API returned non-200: ${errText}`);
+
+          // If a PR already exists for this branch, query and return the existing PR
+          if (errText.includes('A pull request already exists') || res.status === 422) {
+            try {
+              const listRes = await fetch(
+                `https://api.github.com/repos/${input.repoOwner}/${input.repoName}/pulls?head=${input.repoOwner}:${input.branchName}&state=open`,
+                {
+                  headers: {
+                    Authorization: `Bearer ${cleanToken}`,
+                    Accept: 'application/vnd.github.v3+json'
+                  }
+                }
+              );
+              if (listRes.ok) {
+                const existingPrs = await listRes.json();
+                if (existingPrs.length > 0) {
+                  const existingPr = existingPrs[0];
+                  await logger.info(`Found existing open GitHub PR #${existingPr.number}: ${existingPr.html_url}`, {
+                    stage: 'GITHUB'
+                  });
+                  return {
+                    id: String(existingPr.id),
+                    number: existingPr.number,
+                    url: existingPr.html_url,
+                    title: existingPr.title,
+                    branchName: input.branchName,
+                    status: 'OPEN'
+                  };
+                }
+              }
+            } catch (queryErr) {
+              logger.warn(`Failed to fetch existing PR: ${queryErr}`);
+            }
+          }
+
+          throw new Error(`GitHub API returned ${res.status}: ${errText}`);
         }
-      } catch (err) {
-        logger.warn(`GitHub API call failed: ${err}, falling back to simulated PR`);
+      } catch (err: any) {
+        logger.error(`GitHub Pull Request creation failed: ${err.message}`, err);
+        throw err;
       }
     }
 
-    // Simulated PR for local development / testing
+    // Simulated PR ONLY when no GitHub token is configured in local dev
     const prNumber = Math.floor(100 + Math.random() * 900);
     return {
       id: `pr_gh_${Date.now()}`,
@@ -135,12 +175,13 @@ ${input.rollbackPlan || 'Revert this Pull Request or trigger 1-Click Rollback vi
 
   async mergePullRequest(repoOwner: string, repoName: string, prNumber: number): Promise<boolean> {
     await logger.info(`Merging Pull Request #${prNumber} on ${repoOwner}/${repoName}`, { stage: 'GITHUB' });
-    if (this.token && !this.token.includes('mock')) {
+    const cleanToken = (this.token || process.env.GITHUB_TOKEN || '').trim().replace(/^['"]|['"]$/g, '');
+    if (cleanToken && !cleanToken.includes('mock')) {
       try {
         const res = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/pulls/${prNumber}/merge`, {
           method: 'PUT',
           headers: {
-            Authorization: `Bearer ${this.token}`,
+            Authorization: `Bearer ${cleanToken}`,
             Accept: 'application/vnd.github.v3+json'
           }
         });

@@ -15,16 +15,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
 
-    // Trigger run asynchronously
-    setTimeout(() => {
-      orchestrator.runJob(params.id).catch(err => {
-        console.error(`Error running job ${params.id}:`, err);
-      });
-    }, 50);
+    // Execute orchestrator lifecycle
+    await orchestrator.runJob(params.id);
 
     return NextResponse.json({
       success: true,
-      message: `Antigravity fix initiated for ${job.bug?.jiraIssueKey || params.id}`,
+      message: `Antigravity fix executed for ${job.bug?.jiraIssueKey || params.id}`,
       jobId: params.id
     });
   } catch (err: any) {

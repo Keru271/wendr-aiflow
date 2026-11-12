@@ -173,11 +173,13 @@ export class Orchestrator {
         }
       }
 
+      const cleanToken = (process.env.GITHUB_TOKEN || '').trim().replace(/^['"]|['"]$/g, '');
       const workspace = await workspaceManager.createWorkspace({
         jobId,
         jiraKey: job.bug.jiraIssueKey,
         repoCloneUrl: repo.cloneUrl || undefined,
-        baseBranch: repo.defaultBranch
+        baseBranch: repo.defaultBranch || 'master',
+        githubToken: cleanToken
       });
 
       await db.agentWorkspace.create({
@@ -273,6 +275,21 @@ export class Orchestrator {
       // 6. Stage: READY_FOR_PR
       await this.transitionStatus(jobId, JobStatus.READY_FOR_PR);
 
+      // Push feature branch to GitHub remote repository before creating PR
+      try {
+        const cleanToken = (process.env.GITHUB_TOKEN || '').trim().replace(/^['"]|['"]$/g, '');
+        let authedRemoteUrl = repo.cloneUrl;
+        if (cleanToken && authedRemoteUrl?.startsWith('https://github.com/')) {
+          authedRemoteUrl = authedRemoteUrl.replace('https://github.com/', `https://${cleanToken}@github.com/`);
+        }
+        await workspaceManager.pushBranch(jobId, workspace.branchName, authedRemoteUrl || undefined);
+      } catch (pushErr: any) {
+        await logger.warn(`Failed to push branch to remote: ${pushErr.message}`, {
+          jobId,
+          stage: 'WORKSPACE'
+        });
+      }
+
       // 7. Stage: PR_CREATED
       await this.transitionStatus(jobId, JobStatus.PR_CREATED);
       const pr = await githubClient.createPullRequest({
@@ -280,7 +297,7 @@ export class Orchestrator {
         repoName: repo.name,
         title: `fix(${job.bug.jiraIssueKey.toLowerCase()}): ${job.bug.title}`,
         branchName: workspace.branchName,
-        baseBranch: repo.defaultBranch,
+        baseBranch: repo.defaultBranch || 'master',
         jiraKey: job.bug.jiraIssueKey,
         jiraSummary: job.bug.title,
         rootCause: investigation.rootCause,
@@ -288,8 +305,17 @@ export class Orchestrator {
         diffSummary: codingResult.diff
       });
 
-      await db.pullRequest.create({
-        data: {
+      await db.pullRequest.upsert({
+        where: { jobId },
+        update: {
+          githubPrId: pr.id,
+          number: pr.number,
+          url: pr.url,
+          title: pr.title,
+          branchName: pr.branchName,
+          status: 'OPEN'
+        },
+        create: {
           jobId,
           githubPrId: pr.id,
           number: pr.number,

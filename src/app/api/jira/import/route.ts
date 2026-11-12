@@ -73,15 +73,13 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    // If autoStart, trigger orchestrator in background
+    // If autoStart, execute orchestrator lifecycle
     if (autoStart) {
-      setTimeout(() => {
-        orchestrator
-          .runJob(job.id)
-          .catch((err) => {
-            logger.error(`Orchestrator failed for imported job ${job.id}: ${err.message}`, { jobId: job.id });
-          });
-      }, 50);
+      try {
+        await orchestrator.runJob(job.id);
+      } catch (err: any) {
+        logger.error(`Orchestrator failed for imported job ${job.id}: ${err.message}`, { jobId: job.id });
+      }
     }
 
     return NextResponse.json(
