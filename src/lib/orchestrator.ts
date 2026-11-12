@@ -137,7 +137,8 @@ export class Orchestrator {
         repositoryUrl: repo.cloneUrl || 'local',
         baseBranch: repo.defaultBranch,
         workingDirectory: workspace.directoryPath,
-        prompt: `Fix bug ${job.bug.jiraIssueKey}: ${job.bug.title}. Apply proposed fix: ${investigation.proposedFix.join(', ')}`
+        prompt: `Fix bug ${job.bug.jiraIssueKey}: ${job.bug.title}. Apply proposed fix: ${investigation.proposedFix.join(', ')}`,
+        timeoutSeconds: 300
       });
 
       await db.agentExecution.create({

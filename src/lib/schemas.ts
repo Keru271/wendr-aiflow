@@ -36,7 +36,7 @@ export const AgentTaskInputSchema = z.object({
   baseBranch: z.string(),
   workingDirectory: z.string(),
   prompt: z.string(),
-  timeoutSeconds: z.number().default(300),
+  timeoutSeconds: z.number().optional().default(300),
   maxTotalTokens: z.number().optional()
 });
 
