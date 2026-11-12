@@ -3,29 +3,71 @@
 export const dynamic = 'force-dynamic';
 
 import React, { useState, useEffect } from 'react';
-import { FolderKanban, GitBranch, Github, Plus, RefreshCw, X, CheckCircle2 } from 'lucide-react';
+import {
+  FolderKanban,
+  GitBranch,
+  Github,
+  Plus,
+  RefreshCw,
+  X,
+  CheckCircle2,
+  Trash2,
+  ExternalLink,
+  Search,
+  Sparkles,
+  Lock,
+  Unlock,
+  AlertCircle
+} from 'lucide-react';
+
+interface GitHubRepoItem {
+  id: string;
+  name: string;
+  fullName: string;
+  owner: string;
+  defaultBranch: string;
+  description?: string;
+  isPrivate: boolean;
+  cloneUrl: string;
+  htmlUrl: string;
+}
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Add Repository Modal State
+  // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState('');
-  const [repoOwner, setRepoOwner] = useState('');
-  const [repoName, setRepoName] = useState('');
-  const [defaultBranch, setDefaultBranch] = useState('main');
+  const [modalMode, setModalMode] = useState<'fetch' | 'manual'>('fetch');
+
+  // GitHub Auto-Fetch State
+  const [githubOwner, setGithubOwner] = useState('Keru271');
+  const [fetchedRepos, setFetchedRepos] = useState<GitHubRepoItem[]>([]);
+  const [isFetchingRepos, setIsFetchingRepos] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [selectedRepoFullNames, setSelectedRepoFullNames] = useState<string[]>([]);
+  const [repoSearchFilter, setRepoSearchFilter] = useState('');
+
+  // Manual Add Form State
+  const [manualOwner, setManualOwner] = useState('Keru271');
+  const [manualName, setManualName] = useState('');
+  const [manualBranch, setManualBranch] = useState('main');
+
+  // Action status state
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
 
   const fetchProjects = async () => {
     try {
       setLoading(true);
       const res = await fetch('/api/projects');
       const data = await res.json();
-      setProjects(data.projects || []);
-      if (data.projects?.length > 0 && !selectedProjectId) {
-        setSelectedProjectId(data.projects[0].id);
+      const projList = data.projects || [];
+      setProjects(projList);
+      if (projList.length > 0 && !selectedProjectId) {
+        setSelectedProjectId(projList[0].id);
       }
     } catch (err) {
       console.error(err);
@@ -38,9 +80,100 @@ export default function ProjectsPage() {
     fetchProjects();
   }, []);
 
-  const handleAddRepo = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedProjectId || !repoOwner.trim() || !repoName.trim()) return;
+  // Fetch repositories from GitHub API
+  const handleFetchGitHubRepos = async (ownerToFetch?: string) => {
+    const owner = (ownerToFetch || githubOwner || 'Keru271').trim();
+    if (!owner) return;
+
+    setIsFetchingRepos(true);
+    setFetchError(null);
+
+    try {
+      const res = await fetch(`/api/repositories/github?owner=${encodeURIComponent(owner)}`);
+      const data = await res.json();
+
+      if (res.ok && data.repositories) {
+        setFetchedRepos(data.repositories);
+        // Pre-select any repos that aren't already connected to the current project
+        const currentProject = projects.find((p) => p.id === selectedProjectId);
+        const existingNames = new Set(
+          currentProject?.repositories?.map((r: any) => `${r.owner}/${r.name}`.toLowerCase()) || []
+        );
+
+        // Don't auto-check already connected, but keep existing selection if available
+        setSelectedRepoFullNames((prev) => {
+          const fresh = data.repositories
+            .map((r: GitHubRepoItem) => r.fullName)
+            .filter((fn: string) => !existingNames.has(fn.toLowerCase()));
+          return prev.length > 0 ? prev : fresh;
+        });
+      } else {
+        setFetchError(data.error || 'Failed to fetch repositories from GitHub.');
+      }
+    } catch (err: any) {
+      setFetchError(err.message || 'Error connecting to GitHub API');
+    } finally {
+      setIsFetchingRepos(false);
+    }
+  };
+
+  // When modal opens, auto-trigger fetch if empty
+  const openModal = (projId?: string) => {
+    if (projId) setSelectedProjectId(projId);
+    setIsModalOpen(true);
+    setMessage(null);
+    setFetchError(null);
+
+    if (fetchedRepos.length === 0) {
+      handleFetchGitHubRepos(githubOwner);
+    }
+  };
+
+  // Toggle selection for a repository
+  const toggleRepoSelection = (fullName: string) => {
+    setSelectedRepoFullNames((prev) =>
+      prev.includes(fullName) ? prev.filter((fn) => fn !== fullName) : [...prev, fullName]
+    );
+  };
+
+  const handleSelectAll = (filteredItems: GitHubRepoItem[]) => {
+    const currentProject = projects.find((p) => p.id === selectedProjectId);
+    const existingNames = new Set(
+      currentProject?.repositories?.map((r: any) => `${r.owner}/${r.name}`.toLowerCase()) || []
+    );
+
+    const selectable = filteredItems
+      .filter((r) => !existingNames.has(r.fullName.toLowerCase()))
+      .map((r) => r.fullName);
+
+    setSelectedRepoFullNames(selectable);
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedRepoFullNames([]);
+  };
+
+  // Connect Selected Repositories in Bulk
+  const handleConnectSelected = async () => {
+    if (!selectedProjectId) {
+      setMessage({ type: 'error', text: 'Please select a target Jira project' });
+      return;
+    }
+
+    const reposToConnect = fetchedRepos
+      .filter((r) => selectedRepoFullNames.includes(r.fullName))
+      .map((r) => ({
+        owner: r.owner,
+        name: r.name,
+        defaultBranch: r.defaultBranch,
+        cloneUrl: r.cloneUrl,
+        githubRepoId: String(r.id)
+      }));
+
+    if (reposToConnect.length === 0) {
+      setMessage({ type: 'error', text: 'Please select at least one repository to connect' });
+      return;
+    }
 
     setIsSubmitting(true);
     setMessage(null);
@@ -51,40 +184,114 @@ export default function ProjectsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           projectId: selectedProjectId,
-          owner: repoOwner.trim(),
-          name: repoName.trim(),
-          defaultBranch: defaultBranch.trim() || 'main'
+          repositories: reposToConnect
         })
       });
 
       const data = await res.json();
 
       if (res.ok) {
-        setMessage('✅ Repository connected successfully!');
-        setRepoOwner('');
-        setRepoName('');
+        setMessage({
+          type: 'success',
+          text: `✅ Successfully connected ${data.count || reposToConnect.length} repositories to project!`
+        });
         await fetchProjects();
         setTimeout(() => {
           setIsModalOpen(false);
           setMessage(null);
-        }, 1500);
+        }, 1200);
       } else {
-        setMessage(`❌ Error: ${data.error}`);
+        setMessage({ type: 'error', text: data.error || 'Failed to connect repositories' });
       }
     } catch (err: any) {
-      setMessage(`❌ Error: ${err.message}`);
+      setMessage({ type: 'error', text: err.message });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const openAddModal = (projId: string) => {
-    setSelectedProjectId(projId);
-    setIsModalOpen(true);
+  // Manual Single Repo Add
+  const handleManualAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProjectId || !manualOwner.trim() || !manualName.trim()) return;
+
+    setIsSubmitting(true);
+    setMessage(null);
+
+    try {
+      const res = await fetch('/api/repositories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: selectedProjectId,
+          owner: manualOwner.trim(),
+          name: manualName.trim(),
+          defaultBranch: manualBranch.trim() || 'main'
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setMessage({ type: 'success', text: '✅ Repository connected successfully!' });
+        setManualName('');
+        await fetchProjects();
+        setTimeout(() => {
+          setIsModalOpen(false);
+          setMessage(null);
+        }, 1200);
+      } else {
+        setMessage({ type: 'error', text: data.error });
+      }
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
+  // Disconnect / Delete a connected repository
+  const handleDisconnectRepo = async (repoId: string, repoFullName: string) => {
+    if (!confirm(`Are you sure you want to disconnect repository "${repoFullName}" from this project?`)) {
+      return;
+    }
+
+    setDeletingRepoId(repoId);
+
+    try {
+      const res = await fetch(`/api/repositories?id=${encodeURIComponent(repoId)}`, {
+        method: 'DELETE'
+      });
+
+      if (res.ok) {
+        await fetchProjects();
+      } else {
+        const data = await res.json();
+        alert(`Failed to disconnect: ${data.error}`);
+      }
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setDeletingRepoId(null);
+    }
+  };
+
+  // Filter fetched repositories based on search term
+  const filteredRepos = fetchedRepos.filter(
+    (r) =>
+      r.name.toLowerCase().includes(repoSearchFilter.toLowerCase()) ||
+      r.fullName.toLowerCase().includes(repoSearchFilter.toLowerCase()) ||
+      (r.description && r.description.toLowerCase().includes(repoSearchFilter.toLowerCase()))
+  );
+
+  const currentSelectedProject = projects.find((p) => p.id === selectedProjectId);
+  const currentlyConnectedNames = new Set(
+    currentSelectedProject?.repositories?.map((r: any) => `${r.owner}/${r.name}`.toLowerCase()) || []
+  );
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
@@ -92,17 +299,17 @@ export default function ProjectsPage() {
             <span>Projects & Repositories</span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Connect and map multiple GitHub repositories (microservices, frontend, backend) to a single Jira project.
+            Auto-fetch and select multiple GitHub repositories (microservices, frontend, backend) for each Jira project.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => openModal()}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white shadow-lg shadow-blue-500/20 transition-all"
           >
-            <Plus className="w-4 h-4" />
-            <span>Add Repository</span>
+            <Sparkles className="w-4 h-4 text-blue-200" />
+            <span>Auto-Fetch & Connect Repos</span>
           </button>
 
           <button
@@ -116,7 +323,7 @@ export default function ProjectsPage() {
       </div>
 
       {/* Projects and Repositories List */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {loading ? (
           <div className="col-span-2 py-12 text-center text-slate-500">
             <div className="inline-block w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin mb-2" />
@@ -124,7 +331,7 @@ export default function ProjectsPage() {
           </div>
         ) : projects.length === 0 ? (
           <div className="col-span-2 py-12 text-center text-slate-500">
-            No projects found.
+            No projects found in database.
           </div>
         ) : (
           projects.map((proj) => (
@@ -138,19 +345,22 @@ export default function ProjectsPage() {
                   <p className="text-xs text-slate-400 mt-1">{proj.description || 'Core service suite'}</p>
                 </div>
                 <button
-                  onClick={() => openAddModal(proj.id)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-medium text-blue-400 transition-colors"
+                  onClick={() => openModal(proj.id)}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600/10 hover:bg-blue-600/20 text-xs font-semibold text-blue-400 border border-blue-500/20 transition-colors"
                 >
-                  <Plus className="w-3 h-3" />
-                  <span>Connect Repo</span>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Connect Repos</span>
                 </button>
               </div>
 
               {/* Connected Repositories Box */}
               <div className="border-t border-slate-800/80 pt-3 space-y-2 text-xs">
                 <div className="flex items-center justify-between text-slate-400 font-medium">
-                  <span>Connected Repositories ({proj.repositories?.length || 0}):</span>
-                  <span className="text-[10px] text-slate-500">Auto-routes via Jira labels/tags</span>
+                  <span className="flex items-center gap-1.5">
+                    <Github className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Connected Repositories ({proj.repositories?.length || 0}):</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">Multi-repo auto routing active</span>
                 </div>
 
                 {proj.repositories && proj.repositories.length > 0 ? (
@@ -160,22 +370,40 @@ export default function ProjectsPage() {
                         key={repo.id}
                         className="p-3 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center justify-between hover:border-slate-700 transition-colors"
                       >
-                        <div className="flex items-center gap-2">
-                          <Github className="w-4 h-4 text-slate-300" />
-                          <span className="font-mono text-slate-200 font-medium">
-                            {repo.owner}/{repo.name}
-                          </span>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Github className="w-4 h-4 text-slate-400 shrink-0" />
+                          <a
+                            href={`https://github.com/${repo.owner}/${repo.name}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-mono text-slate-200 font-medium hover:text-blue-400 truncate flex items-center gap-1"
+                          >
+                            <span>{repo.owner}/{repo.name}</span>
+                            <ExternalLink className="w-3 h-3 text-slate-500" />
+                          </a>
                         </div>
-                        <span className="flex items-center gap-1 text-[11px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
-                          <GitBranch className="w-3 h-3" />
-                          {repo.defaultBranch}
-                        </span>
+
+                        <div className="flex items-center gap-2">
+                          <span className="flex items-center gap-1 text-[11px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
+                            <GitBranch className="w-3 h-3 text-emerald-400" />
+                            {repo.defaultBranch}
+                          </span>
+
+                          <button
+                            onClick={() => handleDisconnectRepo(repo.id, `${repo.owner}/${repo.name}`)}
+                            disabled={deletingRepoId === repo.id}
+                            title="Disconnect repository"
+                            className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
                 ) : (
                   <div className="p-4 rounded-lg bg-slate-900/40 border border-dashed border-slate-800 text-center text-slate-500">
-                    No repositories connected yet. Click &quot;Connect Repo&quot; to add one.
+                    No repositories connected yet. Click &quot;Connect Repos&quot; to auto-fetch and select them.
                   </div>
                 )}
               </div>
@@ -189,97 +417,332 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      {/* Add Repository Modal */}
+      {/* GitHub Repository Selector Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full max-w-md p-6 rounded-2xl border border-slate-800 bg-[#0d1322] shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Github className="w-5 h-5 text-blue-400" />
-                <span>Connect GitHub Repository</span>
-              </h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-2xl border border-slate-800 bg-[#0d1322] shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/40">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                  <Github className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Connect Repositories to Project</h3>
+                  <p className="text-[11px] text-slate-400">
+                    Automatically fetch repositories from GitHub and choose which to link.
+                  </p>
+                </div>
+              </div>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleAddRepo} className="space-y-4 text-xs">
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-4 text-xs">
+              {/* Target Project Selection */}
               <div>
-                <label className="block text-slate-300 font-medium mb-1">Target Project</label>
+                <label className="block text-slate-300 font-semibold mb-1.5">Target Jira Project</label>
                 <select
                   value={selectedProjectId}
                   onChange={(e) => setSelectedProjectId(e.target.value)}
-                  className="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 focus:outline-none focus:border-blue-500"
+                  className="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 focus:outline-none focus:border-blue-500 font-medium"
                 >
                   {projects.map((p) => (
                     <option key={p.id} value={p.id}>
-                      [{p.key}] {p.name}
+                      [{p.key}] {p.name} ({p.repositories?.length || 0} repos currently connected)
                     </option>
                   ))}
                 </select>
               </div>
 
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">GitHub Owner / Organization</label>
-                <input
-                  type="text"
-                  placeholder="e.g. acme-fintech or Keru271"
-                  value={repoOwner}
-                  onChange={(e) => setRepoOwner(e.target.value)}
-                  required
-                  className="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 focus:outline-none focus:border-blue-500"
-                />
+              {/* Mode Switch Tabs */}
+              <div className="flex items-center gap-2 p-1 rounded-lg bg-slate-900 border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setModalMode('fetch')}
+                  className={`flex-1 py-1.5 px-3 rounded-md font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                    modalMode === 'fetch'
+                      ? 'bg-blue-600 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Auto-Fetch from GitHub</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModalMode('manual')}
+                  className={`flex-1 py-1.5 px-3 rounded-md font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                    modalMode === 'manual'
+                      ? 'bg-slate-800 text-white shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Manual Entry</span>
+                </button>
               </div>
 
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Repository Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g. auth-service, web-frontend, payment-api"
-                  value={repoName}
-                  onChange={(e) => setRepoName(e.target.value)}
-                  required
-                  className="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 focus:outline-none focus:border-blue-500"
-                />
-              </div>
+              {/* AUTO-FETCH TAB CONTENT */}
+              {modalMode === 'fetch' && (
+                <div className="space-y-4">
+                  {/* GitHub Owner / Username Input */}
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <label className="block text-[11px] text-slate-400 font-medium mb-1">
+                        GitHub Username / Organization
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <input
+                            type="text"
+                            value={githubOwner}
+                            onChange={(e) => setGithubOwner(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleFetchGitHubRepos()}
+                            placeholder="e.g. Keru271 or organization"
+                            className="w-full pl-8 pr-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 focus:outline-none focus:border-blue-500 font-mono text-xs"
+                          />
+                          <Github className="w-4 h-4 text-slate-500 absolute left-2.5 top-2.5" />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleFetchGitHubRepos()}
+                          disabled={isFetchingRepos}
+                          className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold flex items-center gap-1.5 shrink-0 disabled:opacity-50 transition-colors"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isFetchingRepos ? 'animate-spin text-amber-400' : ''}`} />
+                          <span>{isFetchingRepos ? 'Fetching...' : 'Fetch Repos'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
 
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Default Base Branch</label>
-                <input
-                  type="text"
-                  placeholder="main or master"
-                  value={defaultBranch}
-                  onChange={(e) => setDefaultBranch(e.target.value)}
-                  className="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 focus:outline-none focus:border-blue-500"
-                />
-              </div>
+                  {fetchError && (
+                    <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{fetchError}</span>
+                    </div>
+                  )}
 
-              {message && (
-                <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-slate-200">
-                  {message}
+                  {/* Filter and Selection Header */}
+                  {fetchedRepos.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+                        <div className="relative flex-1 max-w-xs">
+                          <input
+                            type="text"
+                            value={repoSearchFilter}
+                            onChange={(e) => setRepoSearchFilter(e.target.value)}
+                            placeholder="Filter repositories..."
+                            className="w-full pl-7 pr-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800 text-slate-200 focus:outline-none focus:border-blue-500 text-xs"
+                          />
+                          <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2" />
+                        </div>
+
+                        <div className="flex items-center gap-2 text-[11px]">
+                          <button
+                            type="button"
+                            onClick={() => handleSelectAll(filteredRepos)}
+                            className="text-blue-400 hover:text-blue-300 font-medium"
+                          >
+                            Select All
+                          </button>
+                          <span className="text-slate-600">•</span>
+                          <button
+                            type="button"
+                            onClick={handleDeselectAll}
+                            className="text-slate-400 hover:text-slate-300"
+                          >
+                            Deselect All
+                          </button>
+                          <span className="text-slate-600">•</span>
+                          <span className="font-semibold text-slate-300">
+                            {selectedRepoFullNames.length} selected
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Repositories Checklist */}
+                      <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/60 divide-y divide-slate-800/60">
+                        {filteredRepos.length === 0 ? (
+                          <div className="p-4 text-center text-slate-500">
+                            No repositories match &quot;{repoSearchFilter}&quot;
+                          </div>
+                        ) : (
+                          filteredRepos.map((repo) => {
+                            const isConnected = currentlyConnectedNames.has(repo.fullName.toLowerCase());
+                            const isSelected = selectedRepoFullNames.includes(repo.fullName);
+
+                            return (
+                              <label
+                                key={repo.id}
+                                className={`flex items-center justify-between p-3 cursor-pointer transition-colors ${
+                                  isConnected
+                                    ? 'opacity-60 bg-slate-900/30 cursor-not-allowed'
+                                    : isSelected
+                                    ? 'bg-blue-600/10 hover:bg-blue-600/15'
+                                    : 'hover:bg-slate-900/60'
+                                }`}
+                              >
+                                <div className="flex items-center gap-3 min-w-0 pr-2">
+                                  <input
+                                    type="checkbox"
+                                    disabled={isConnected}
+                                    checked={isConnected || isSelected}
+                                    onChange={() => !isConnected && toggleRepoSelection(repo.fullName)}
+                                    className="w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700 focus:ring-blue-500 focus:ring-offset-slate-900"
+                                  />
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-mono font-bold text-white text-xs truncate">
+                                        {repo.name}
+                                      </span>
+                                      {repo.isPrivate ? (
+                                        <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-amber-400/10 px-1.5 py-0.2 rounded border border-amber-400/20">
+                                          <Lock className="w-2.5 h-2.5" /> Private
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.2 rounded">
+                                          <Unlock className="w-2.5 h-2.5" /> Public
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="font-mono text-[10px] text-slate-400 block truncate">
+                                      {repo.fullName}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="font-mono text-[10px] text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 flex items-center gap-1">
+                                    <GitBranch className="w-3 h-3 text-emerald-400" />
+                                    {repo.defaultBranch}
+                                  </span>
+
+                                  {isConnected && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded border border-emerald-400/20">
+                                      <CheckCircle2 className="w-3 h-3" /> Connected
+                                    </span>
+                                  )}
+                                </div>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {fetchedRepos.length === 0 && !isFetchingRepos && !fetchError && (
+                    <div className="p-8 text-center text-slate-500 border border-dashed border-slate-800 rounded-lg">
+                      <Github className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                      <p>Enter a GitHub username/org above and click &quot;Fetch Repos&quot;.</p>
+                    </div>
+                  )}
                 </div>
               )}
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              {/* MANUAL ENTRY TAB CONTENT */}
+              {modalMode === 'manual' && (
+                <form id="manual-repo-form" onSubmit={handleManualAdd} className="space-y-4">
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">GitHub Owner / Organization</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Keru271 or organization"
+                      value={manualOwner}
+                      onChange={(e) => setManualOwner(e.target.value)}
+                      required
+                      className="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 focus:outline-none focus:border-blue-500 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">Repository Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. STOREFRONT_FRONTEND, payment-api"
+                      value={manualName}
+                      onChange={(e) => setManualName(e.target.value)}
+                      required
+                      className="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 focus:outline-none focus:border-blue-500 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">Default Base Branch</label>
+                    <input
+                      type="text"
+                      placeholder="master or main"
+                      value={manualBranch}
+                      onChange={(e) => setManualBranch(e.target.value)}
+                      className="w-full p-2.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 focus:outline-none focus:border-blue-500 font-mono"
+                    />
+                  </div>
+                </form>
+              )}
+
+              {message && (
+                <div
+                  className={`p-3 rounded-lg border text-xs font-mono ${
+                    message.type === 'success'
+                      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
+                      : 'bg-rose-500/10 border-rose-500/20 text-rose-300'
+                  }`}
+                >
+                  {message.text}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-800 bg-slate-900/60">
+              <span className="text-[11px] text-slate-400">
+                {modalMode === 'fetch'
+                  ? `${selectedRepoFullNames.length} selected for connection`
+                  : 'Manual single repository mode'}
+              </span>
+
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium"
+                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium transition-colors"
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold disabled:opacity-50 transition-colors"
-                >
-                  {isSubmitting ? 'Connecting...' : 'Connect Repository'}
-                </button>
+
+                {modalMode === 'fetch' ? (
+                  <button
+                    type="button"
+                    onClick={handleConnectSelected}
+                    disabled={isSubmitting || selectedRepoFullNames.length === 0}
+                    className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold disabled:opacity-50 transition-colors flex items-center gap-1.5 shadow-lg shadow-blue-500/20"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>
+                      {isSubmitting
+                        ? 'Connecting...'
+                        : `Connect ${selectedRepoFullNames.length} Repositories`}
+                    </span>
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    form="manual-repo-form"
+                    disabled={isSubmitting}
+                    className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold disabled:opacity-50 transition-colors"
+                  >
+                    {isSubmitting ? 'Connecting...' : 'Connect Repository'}
+                  </button>
+                )}
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}
