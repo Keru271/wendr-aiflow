@@ -4,6 +4,7 @@ import { logger, recordAuditLog } from './observability';
 import { jiraClient } from './jira';
 import { githubClient, CreatedPullRequest } from './github';
 import { getAgentAdapter, workspaceManager } from './agent-adapters';
+import { antigravityClient } from './antigravity-client';
 import { InvestigationResult, ReviewResult } from './schemas';
 
 export class Orchestrator {
@@ -90,44 +91,16 @@ export class Orchestrator {
       await jiraClient.transitionStatus(job.bug.jiraIssueKey, 'In Progress');
       await jiraClient.addComment(
         job.bug.jiraIssueKey,
-        `📌 **[Google Antigravity]** Picked up issue \`${job.bug.jiraIssueKey}\` ("${job.bug.title}"). Analyzing root cause and workspace dependencies...`
+        `📌 **[Google Antigravity]** Picked up issue \`${job.bug.jiraIssueKey}\` ("${job.bug.title}"). Analyzing root cause and workspace dependencies with Google AI...`
       );
 
-      const titleLower = (job.bug.title || '').toLowerCase();
-      const isNameChange = titleLower.includes('name') || titleLower.includes('wendr') || titleLower.includes('miordr');
-
-      const investigation: InvestigationResult = isNameChange ? {
-        summary: `Project naming migration from wendr to miordr for ${job.bug.jiraIssueKey}`,
-        rootCause: `Configuration files, manifest definitions, and application branding reference legacy name 'wendr' instead of 'miordr'.`,
-        likelyFiles: ['src/config/app.ts', 'package.json', 'README.md'],
-        proposedFix: [
-          'Update application configuration APP_CONFIG to miordr',
-          'Ensure backward compatibility for previous name wendr',
-          'Add unit test verification suite'
-        ],
-        acceptanceCriteria: [
-          'getProjectName() returns miordr',
-          'All configuration tests pass 100%'
-        ],
-        risk: 'low',
-        needsHumanInput: false
-      } : {
-        summary: `Race condition in checkout timeout handler for ticket ${job.bug.jiraIssueKey}`,
-        rootCause: `The payment processing client timed out after 3000ms before 3D-Secure webhooks returned. Missing idempotency key check led to double-charge hazards.`,
-        likelyFiles: ['src/payments/payment-processor.ts', 'src/payments/payment-processor.test.ts'],
-        proposedFix: [
-          'Increase verification timeout to 15000ms',
-          'Enforce idempotency key parameter in PaymentRequest',
-          'Add comprehensive test coverage'
-        ],
-        acceptanceCriteria: [
-          'Payment requests must require idempotency key',
-          'Timeout must safely tolerate 3DS latency up to 15s',
-          'Unit tests pass 100%'
-        ],
-        risk: 'low',
-        needsHumanInput: false
-      };
+      const targetRepoNames = (job.project?.repositories || []).map((r: any) => r.name);
+      const investigation: InvestigationResult = await antigravityClient.investigateBug({
+        issueKey: job.bug.jiraIssueKey,
+        title: job.bug.title,
+        description: job.bug.description || '',
+        targetRepos: targetRepoNames
+      });
 
       await db.agentExecution.create({
         data: {
@@ -254,8 +227,13 @@ export class Orchestrator {
           baseBranch: repo.defaultBranch || 'master',
           workingDirectory: workspace.directoryPath,
           prompt: `Fix bug ${job.bug.jiraIssueKey} in repository ${repo.name}: ${job.bug.title}. Apply proposed fix: ${investigation.proposedFix.join(', ')}`,
-          timeoutSeconds: 300
-        });
+          timeoutSeconds: 300,
+          jiraKey: job.bug.jiraIssueKey,
+          title: job.bug.title,
+          description: job.bug.description || '',
+          proposedFix: investigation.proposedFix,
+          repositoryName: repo.name
+        } as any);
 
         await db.agentExecution.create({
           data: {
