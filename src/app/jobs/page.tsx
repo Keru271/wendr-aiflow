@@ -12,14 +12,18 @@ import {
   ArrowRight, 
   RefreshCw, 
   AlertCircle,
-  Play
+  Play,
+  FolderKanban,
+  Sparkles
 } from 'lucide-react';
+import JiraSyncModal from '@/components/JiraSyncModal';
 
 export default function JobsPage() {
   const [jobs, setJobs] = useState<any[]>([]);
   const [filter, setFilter] = useState('ALL');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [isJiraModalOpen, setIsJiraModalOpen] = useState(false);
 
   const fetchJobs = async () => {
     try {
@@ -69,13 +73,23 @@ export default function JobsPage() {
           </p>
         </div>
 
-        <button
-          onClick={fetchJobs}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 transition-colors"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          <span>Refresh</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsJiraModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white shadow-lg shadow-indigo-500/20 transition-all"
+          >
+            <FolderKanban className="w-4 h-4 text-indigo-200" />
+            <span>Sync from Jira</span>
+          </button>
+
+          <button
+            onClick={fetchJobs}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}
@@ -84,7 +98,7 @@ export default function JobsPage() {
           <Search className="w-4 h-4 text-slate-500" />
           <input
             type="text"
-            placeholder="Search by Jira key (e.g. WEB-1024) or title..."
+            placeholder="Search by Jira key (e.g. WEB-1024, WEB-3) or title..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="bg-transparent text-xs text-slate-200 placeholder-slate-500 focus:outline-none w-full"
@@ -133,7 +147,7 @@ export default function JobsPage() {
             ) : filteredJobs.length === 0 ? (
               <tr>
                 <td colSpan={7} className="py-12 text-center text-slate-500">
-                  No matching jobs found.
+                  No matching jobs found. Click &quot;Sync from Jira&quot; to import tickets.
                 </td>
               </tr>
             ) : (
@@ -186,6 +200,13 @@ export default function JobsPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Jira Sync Modal */}
+      <JiraSyncModal
+        isOpen={isJiraModalOpen}
+        onClose={() => setIsJiraModalOpen(false)}
+        onImportSuccess={fetchJobs}
+      />
     </div>
   );
 }

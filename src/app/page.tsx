@@ -18,11 +18,14 @@ import {
   AlertTriangle,
   ArrowRight,
   TrendingUp,
-  Coins
+  Coins,
+  FolderKanban
 } from 'lucide-react';
+import JiraSyncModal from '@/components/JiraSyncModal';
 
 export default function DashboardPage() {
   const [jobs, setJobs] = useState<any[]>([]);
+  const [isJiraModalOpen, setIsJiraModalOpen] = useState(false);
   const [stats, setStats] = useState({
     activeJobs: 0,
     completedJobs: 0,
@@ -145,6 +148,14 @@ export default function DashboardPage() {
                   <span>Run Live Fix Demo (WEB-1024)</span>
                 </>
               )}
+            </button>
+
+            <button
+              onClick={() => setIsJiraModalOpen(true)}
+              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-slate-100 font-semibold text-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <FolderKanban className="w-4 h-4 text-indigo-400" />
+              <span>Sync from Jira</span>
             </button>
           </div>
         </div>
@@ -335,6 +346,13 @@ export default function DashboardPage() {
           </table>
         </div>
       </div>
+
+      {/* Jira Sync Modal */}
+      <JiraSyncModal
+        isOpen={isJiraModalOpen}
+        onClose={() => setIsJiraModalOpen(false)}
+        onImportSuccess={fetchData}
+      />
     </div>
   );
 }

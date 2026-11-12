@@ -102,6 +102,55 @@ export class JiraClient {
     };
   }
 
+  async searchIssues(jql: string = 'order by created DESC', maxResults: number = 25): Promise<Array<{
+    id: string;
+    key: string;
+    projectKey: string;
+    summary: string;
+    status: string;
+    priority: string;
+    labels: string[];
+    created: string;
+  }>> {
+    if (this.authHeader && !this.host.includes('mock') && !this.host.includes('localhost') && !this.host.includes('your-company')) {
+      try {
+        const res = await fetch(`${this.host}/rest/api/3/search/jql`, {
+          method: 'POST',
+          headers: {
+            Authorization: this.authHeader,
+            'Content-Type': 'application/json',
+            Accept: 'application/json'
+          },
+          body: JSON.stringify({
+            jql,
+            maxResults,
+            fields: ['key', 'summary', 'status', 'labels', 'created', 'priority', 'project']
+          })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          return (data.issues || []).map((i: any) => ({
+            id: String(i.id),
+            key: i.key,
+            projectKey: i.fields?.project?.key || i.key?.split('-')[0] || 'WEB',
+            summary: i.fields?.summary || '',
+            status: i.fields?.status?.name || 'Open',
+            priority: i.fields?.priority?.name || 'Medium',
+            labels: i.fields?.labels || [],
+            created: i.fields?.created || ''
+          }));
+        } else {
+          const errBody = await res.text();
+          logger.warn(`Jira search/jql API returned ${res.status}: ${errBody}`);
+        }
+      } catch (err: any) {
+        logger.warn(`Jira searchIssues call failed: ${err.message}`);
+      }
+    }
+    return [];
+  }
+
   async transitionStatus(issueKey: string, targetStatus: string): Promise<boolean> {
     await logger.info(`Transitioning Jira issue ${issueKey} to status: "${targetStatus}"`, { stage: 'JIRA' });
     return true;

@@ -5,6 +5,8 @@ import { orchestrator } from '@/lib/orchestrator';
 import { JobStatus } from '@/lib/types';
 import { logger } from '@/lib/observability';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest) {
   try {
     const rawBody = await req.text();
@@ -39,11 +41,6 @@ export async function POST(req: NextRequest) {
     const labels: string[] = issue.fields?.labels || [];
     const hasOptIn = labels.some((l: string) => l.toLowerCase() === 'ai-fix-opt-in' || l.toLowerCase() === 'fixpilot');
 
-    if (!hasOptIn) {
-      await logger.info(`Ignored Jira issue ${issue.key}: missing 'ai-fix-opt-in' label`);
-      return NextResponse.json({ message: 'Ignored: Missing ai-fix-opt-in label', key: issue.key });
-    }
-
     // Resolve project
     const projectKey = issue.key.split('-')[0];
     let project = await db.project.findFirst({
@@ -58,7 +55,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Upsert bug
+    // Upsert bug so it is ALWAYS visible in the dashboard
     const bug = await db.bug.upsert({
       where: {
         projectId_jiraIssueId: {
@@ -101,13 +98,19 @@ export async function POST(req: NextRequest) {
       data: { processed: true }
     });
 
-    // Run orchestrator asynchronously
-    orchestrator.runJob(job.id).catch(err => {
-      logger.error(`Orchestrator error for job ${job.id}: ${err.message}`, err);
-    });
+    // Run orchestrator asynchronously if opted in
+    if (hasOptIn) {
+      orchestrator.runJob(job.id).catch(err => {
+        logger.error(`Orchestrator error for job ${job.id}: ${err.message}`, err);
+      });
+    } else {
+      await logger.info(`Jira issue ${issue.key} saved to dashboard in QUEUED status (ready for manual start)`);
+    }
 
     return NextResponse.json({
-      message: 'Jira issue accepted and queued for FixPilot autonomous resolution',
+      message: hasOptIn
+        ? 'Jira issue accepted and queued for FixPilot autonomous resolution'
+        : 'Jira issue received and logged to dashboard (pending manual start or opt-in label)',
       jobId: job.id,
       jiraKey: issue.key
     });
