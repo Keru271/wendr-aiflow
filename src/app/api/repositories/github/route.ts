@@ -9,6 +9,7 @@ export async function GET(req: NextRequest) {
     const tokenQuery = searchParams.get('token')?.trim();
 
     const targetOwner = ownerQuery || process.env.GITHUB_OWNER || 'Keru271';
+    // Use tokenQuery first; if not provided, try process.env.GITHUB_TOKEN
     const token = tokenQuery || process.env.GITHUB_TOKEN;
 
     const headers: Record<string, string> = {
@@ -16,45 +17,69 @@ export async function GET(req: NextRequest) {
       Accept: 'application/vnd.github.v3+json'
     };
 
-    if (token && !token.includes('mock') && !token.includes('dummy')) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-
     let rawRepos: any[] = [];
     let fetchSource = '';
+    let tokenWarning: string | null = null;
+    let tokenValid = false;
 
-    // If an authenticated token was provided and user didn't specify a different owner,
-    // fetch all repositories the user has access to
-    if (token && !token.includes('mock') && !token.includes('dummy') && !ownerQuery) {
+    // 1. If a token is available, attempt to query authenticated repositories (returns PRIVATE + PUBLIC)
+    if (token && !token.includes('mock') && !token.includes('dummy')) {
       try {
+        const authedHeaders = {
+          ...headers,
+          Authorization: `Bearer ${token}`
+        };
+
         const userReposRes = await fetch(
-          'https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member',
-          { headers, cache: 'no-store' }
+          'https://api.github.com/user/repos?per_page=100&sort=updated&visibility=all&affiliation=owner,collaborator,organization_member',
+          { headers: authedHeaders, cache: 'no-store' }
         );
 
         if (userReposRes.ok) {
           const data = await userReposRes.json();
-          if (Array.isArray(data)) {
-            rawRepos = data;
-            fetchSource = 'authenticated_user';
+          if (Array.isArray(data) && data.length > 0) {
+            tokenValid = true;
+            fetchSource = 'authenticated_token_all';
+            // If user explicitly specified an owner, filter to that owner if any match,
+            // otherwise include all repos accessible to this token
+            const matchingOwner = data.filter(
+              (r) => r.owner?.login?.toLowerCase() === targetOwner.toLowerCase()
+            );
+
+            if (matchingOwner.length > 0) {
+              rawRepos = matchingOwner;
+            } else {
+              rawRepos = data;
+            }
           }
+        } else if (userReposRes.status === 401) {
+          tokenWarning = 'The GitHub Token provided is invalid or expired (401 Bad credentials). Private repositories cannot be fetched without a valid token.';
+        } else {
+          const errText = await userReposRes.text();
+          console.warn(`GitHub user/repos returned status ${userReposRes.status}:`, errText);
         }
-      } catch (err) {
-        console.warn('Failed to fetch via authenticated user/repos, falling back to public owner lookup:', err);
+      } catch (err: any) {
+        console.warn('Error fetching authenticated repos:', err.message);
       }
     }
 
-    // If not fetched yet or specific owner requested, query target user/org repos
+    // 2. If no repos yet (e.g. unauthenticated or token failed), fetch by username / organization
     if (rawRepos.length === 0) {
+      const publicHeaders = { ...headers };
+      if (token && !token.includes('mock') && !token.includes('dummy')) {
+        publicHeaders.Authorization = `Bearer ${token}`;
+      }
+
+      // Try user endpoint
       let res = await fetch(`https://api.github.com/users/${encodeURIComponent(targetOwner)}/repos?per_page=100&sort=updated`, {
-        headers,
+        headers: publicHeaders,
         cache: 'no-store'
       });
 
-      if (!res.ok && res.status === 404) {
+      if (!res.ok && (res.status === 404 || res.status === 403)) {
         // Try organization endpoint
         res = await fetch(`https://api.github.com/orgs/${encodeURIComponent(targetOwner)}/repos?per_page=100&sort=updated`, {
-          headers,
+          headers: publicHeaders,
           cache: 'no-store'
         });
       }
@@ -63,13 +88,14 @@ export async function GET(req: NextRequest) {
         const data = await res.json();
         if (Array.isArray(data)) {
           rawRepos = data;
-          fetchSource = `user_or_org_${targetOwner}`;
+          fetchSource = `public_${targetOwner}`;
         }
       } else {
         const errBody = await res.text();
         return NextResponse.json(
           {
             error: `GitHub API error (${res.status}): ${errBody}`,
+            warning: tokenWarning,
             owner: targetOwner,
             repositories: []
           },
@@ -81,7 +107,7 @@ export async function GET(req: NextRequest) {
     const repositories = rawRepos.map((r: any) => ({
       id: String(r.id),
       name: r.name,
-      fullName: r.full_name || `${targetOwner}/${r.name}`,
+      fullName: r.full_name || `${r.owner?.login || targetOwner}/${r.name}`,
       owner: r.owner?.login || targetOwner,
       defaultBranch: r.default_branch || 'main',
       description: r.description || '',
@@ -96,6 +122,8 @@ export async function GET(req: NextRequest) {
       success: true,
       owner: targetOwner,
       source: fetchSource,
+      tokenValid,
+      tokenWarning,
       count: repositories.length,
       repositories
     });
@@ -103,4 +131,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
   }
 }
-

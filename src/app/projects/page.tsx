@@ -17,7 +17,12 @@ import {
   Sparkles,
   Lock,
   Unlock,
-  AlertCircle
+  AlertCircle,
+  KeyRound,
+  Eye,
+  EyeOff,
+  HelpCircle,
+  AlertTriangle
 } from 'lucide-react';
 
 interface GitHubRepoItem {
@@ -43,9 +48,14 @@ export default function ProjectsPage() {
 
   // GitHub Auto-Fetch State
   const [githubOwner, setGithubOwner] = useState('Keru271');
+  const [githubToken, setGithubToken] = useState('');
+  const [showTokenInput, setShowTokenInput] = useState(false);
+  const [showTokenPlain, setShowTokenPlain] = useState(false);
+
   const [fetchedRepos, setFetchedRepos] = useState<GitHubRepoItem[]>([]);
   const [isFetchingRepos, setIsFetchingRepos] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [tokenWarning, setTokenWarning] = useState<string | null>(null);
   const [selectedRepoFullNames, setSelectedRepoFullNames] = useState<string[]>([]);
   const [repoSearchFilter, setRepoSearchFilter] = useState('');
 
@@ -58,6 +68,17 @@ export default function ProjectsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
+
+  // Load saved token from localStorage if available
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedToken = localStorage.getItem('fixpilot_github_token');
+      if (savedToken) {
+        setGithubToken(savedToken);
+        setShowTokenInput(true);
+      }
+    }
+  }, []);
 
   const fetchProjects = async () => {
     try {
@@ -81,26 +102,43 @@ export default function ProjectsPage() {
   }, []);
 
   // Fetch repositories from GitHub API
-  const handleFetchGitHubRepos = async (ownerToFetch?: string) => {
-    const owner = (ownerToFetch || githubOwner || 'Keru271').trim();
-    if (!owner) return;
+  const handleFetchGitHubRepos = async (ownerToFetch?: string, tokenToUse?: string) => {
+    const owner = (ownerToFetch !== undefined ? ownerToFetch : githubOwner).trim();
+    const token = (tokenToUse !== undefined ? tokenToUse : githubToken).trim();
 
     setIsFetchingRepos(true);
     setFetchError(null);
+    setTokenWarning(null);
+
+    // Save token if entered
+    if (typeof window !== 'undefined') {
+      if (token) {
+        localStorage.setItem('fixpilot_github_token', token);
+      } else {
+        localStorage.removeItem('fixpilot_github_token');
+      }
+    }
 
     try {
-      const res = await fetch(`/api/repositories/github?owner=${encodeURIComponent(owner)}`);
+      const queryParams = new URLSearchParams();
+      if (owner) queryParams.set('owner', owner);
+      if (token) queryParams.set('token', token);
+
+      const res = await fetch(`/api/repositories/github?${queryParams.toString()}`);
       const data = await res.json();
 
       if (res.ok && data.repositories) {
         setFetchedRepos(data.repositories);
-        // Pre-select any repos that aren't already connected to the current project
+        if (data.tokenWarning) {
+          setTokenWarning(data.tokenWarning);
+        }
+
+        // Auto-select repositories that aren't already connected to the current project
         const currentProject = projects.find((p) => p.id === selectedProjectId);
         const existingNames = new Set(
           currentProject?.repositories?.map((r: any) => `${r.owner}/${r.name}`.toLowerCase()) || []
         );
 
-        // Don't auto-check already connected, but keep existing selection if available
         setSelectedRepoFullNames((prev) => {
           const fresh = data.repositories
             .map((r: GitHubRepoItem) => r.fullName)
@@ -117,7 +155,7 @@ export default function ProjectsPage() {
     }
   };
 
-  // When modal opens, auto-trigger fetch if empty
+  // Open modal and auto fetch
   const openModal = (projId?: string) => {
     if (projId) setSelectedProjectId(projId);
     setIsModalOpen(true);
@@ -125,7 +163,7 @@ export default function ProjectsPage() {
     setFetchError(null);
 
     if (fetchedRepos.length === 0) {
-      handleFetchGitHubRepos(githubOwner);
+      handleFetchGitHubRepos(githubOwner, githubToken);
     }
   };
 
@@ -288,6 +326,9 @@ export default function ProjectsPage() {
   const currentlyConnectedNames = new Set(
     currentSelectedProject?.repositories?.map((r: any) => `${r.owner}/${r.name}`.toLowerCase()) || []
   );
+
+  // Check if any private repo is present in the list
+  const hasPrivateRepos = fetchedRepos.some((r) => r.isPrivate);
 
   return (
     <div className="space-y-6">
@@ -492,11 +533,22 @@ export default function ProjectsPage() {
               {modalMode === 'fetch' && (
                 <div className="space-y-4">
                   {/* GitHub Owner / Username Input */}
-                  <div className="flex items-center gap-2">
-                    <div className="relative flex-1">
-                      <label className="block text-[11px] text-slate-400 font-medium mb-1">
-                        GitHub Username / Organization
-                      </label>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] text-slate-400 font-medium">
+                          GitHub Username / Organization
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setShowTokenInput(!showTokenInput)}
+                          className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                        >
+                          <KeyRound className="w-3 h-3" />
+                          <span>{showTokenInput ? 'Hide Token Field' : 'Enter GitHub Token (for Private Repos)'}</span>
+                        </button>
+                      </div>
+
                       <div className="flex items-center gap-2">
                         <div className="relative flex-1">
                           <input
@@ -504,7 +556,7 @@ export default function ProjectsPage() {
                             value={githubOwner}
                             onChange={(e) => setGithubOwner(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleFetchGitHubRepos()}
-                            placeholder="e.g. Keru271 or organization"
+                            placeholder="e.g. Keru271 or organization name"
                             className="w-full pl-8 pr-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 focus:outline-none focus:border-blue-500 font-mono text-xs"
                           />
                           <Github className="w-4 h-4 text-slate-500 absolute left-2.5 top-2.5" />
@@ -513,14 +565,75 @@ export default function ProjectsPage() {
                           type="button"
                           onClick={() => handleFetchGitHubRepos()}
                           disabled={isFetchingRepos}
-                          className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold flex items-center gap-1.5 shrink-0 disabled:opacity-50 transition-colors"
+                          className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold flex items-center gap-1.5 shrink-0 disabled:opacity-50 transition-colors"
                         >
                           <RefreshCw className={`w-3.5 h-3.5 ${isFetchingRepos ? 'animate-spin text-amber-400' : ''}`} />
                           <span>{isFetchingRepos ? 'Fetching...' : 'Fetch Repos'}</span>
                         </button>
                       </div>
                     </div>
+
+                    {/* Optional GitHub Token Input for Private Backend Repositories */}
+                    {showTokenInput && (
+                      <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-1.5 animate-in fade-in duration-150">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-[11px] font-semibold text-slate-300 flex items-center gap-1">
+                            <KeyRound className="w-3 h-3 text-amber-400" />
+                            <span>GitHub Personal Access Token (PAT)</span>
+                          </label>
+                          <span className="text-[10px] text-slate-500">Requires `repo` scope</span>
+                        </div>
+                        <div className="relative">
+                          <input
+                            type={showTokenPlain ? 'text' : 'password'}
+                            value={githubToken}
+                            onChange={(e) => setGithubToken(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleFetchGitHubRepos()}
+                            placeholder="ghp_... or github_pat_..."
+                            className="w-full pl-3 pr-10 py-1.5 rounded bg-slate-950 border border-slate-700 text-slate-200 focus:outline-none focus:border-blue-500 font-mono text-xs"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowTokenPlain(!showTokenPlain)}
+                            className="absolute right-2.5 top-2 text-slate-500 hover:text-slate-300"
+                          >
+                            {showTokenPlain ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-slate-400 leading-tight">
+                          Private backend repositories are hidden by GitHub unless queried with a token.
+                        </p>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Token Warning Banner */}
+                  {tokenWarning && (
+                    <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                      <div className="text-[11px] leading-relaxed">
+                        <p className="font-semibold">GitHub Token Authentication Notice</p>
+                        <p>{tokenWarning}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Backend Repos Notice if only public repos were returned */}
+                  {!hasPrivateRepos && fetchedRepos.length > 0 && !tokenWarning && (
+                    <div className="p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 flex items-center justify-between gap-2 text-[11px]">
+                      <div className="flex items-center gap-1.5">
+                        <HelpCircle className="w-4 h-4 text-blue-400 shrink-0" />
+                        <span>Backend repositories missing? If they are <b>Private</b>, provide a GitHub Token above.</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowTokenInput(true)}
+                        className="underline text-blue-400 hover:text-white shrink-0 font-medium"
+                      >
+                        Enter Token
+                      </button>
+                    </div>
+                  )}
 
                   {fetchError && (
                     <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 flex items-center gap-2">
@@ -538,7 +651,7 @@ export default function ProjectsPage() {
                             type="text"
                             value={repoSearchFilter}
                             onChange={(e) => setRepoSearchFilter(e.target.value)}
-                            placeholder="Filter repositories..."
+                            placeholder="Filter by name (e.g. backend, cms)..."
                             className="w-full pl-7 pr-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800 text-slate-200 focus:outline-none focus:border-blue-500 text-xs"
                           />
                           <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2" />
@@ -568,10 +681,11 @@ export default function ProjectsPage() {
                       </div>
 
                       {/* Repositories Checklist */}
-                      <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/60 divide-y divide-slate-800/60">
+                      <div className="max-h-60 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/60 divide-y divide-slate-800/60">
                         {filteredRepos.length === 0 ? (
-                          <div className="p-4 text-center text-slate-500">
-                            No repositories match &quot;{repoSearchFilter}&quot;
+                          <div className="p-6 text-center text-slate-500">
+                            <p>No repositories match &quot;{repoSearchFilter}&quot;.</p>
+                            <p className="text-[10px] mt-1">If your backend repository is private, enter a GitHub Personal Access Token above.</p>
                           </div>
                         ) : (
                           filteredRepos.map((repo) => {
@@ -650,6 +764,10 @@ export default function ProjectsPage() {
               {/* MANUAL ENTRY TAB CONTENT */}
               {modalMode === 'manual' && (
                 <form id="manual-repo-form" onSubmit={handleManualAdd} className="space-y-4">
+                  <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs">
+                    💡 <b>Add Any Backend Repository Manually:</b> Enter your repository name below if it is private or hosted under another organization.
+                  </div>
+
                   <div>
                     <label className="block text-slate-300 font-medium mb-1">GitHub Owner / Organization</label>
                     <input
@@ -666,7 +784,7 @@ export default function ProjectsPage() {
                     <label className="block text-slate-300 font-medium mb-1">Repository Name</label>
                     <input
                       type="text"
-                      placeholder="e.g. STOREFRONT_FRONTEND, payment-api"
+                      placeholder="e.g. backend-api, STOREFRONT_BACKEND, auth-service"
                       value={manualName}
                       onChange={(e) => setManualName(e.target.value)}
                       required
