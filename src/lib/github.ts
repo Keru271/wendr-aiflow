@@ -192,6 +192,79 @@ ${input.rollbackPlan || 'Revert this Pull Request or trigger 1-Click Rollback vi
     }
     return true; // simulated merge
   }
+
+  /**
+   * Ensure a branch exists on remote GitHub using REST API (fallback for environments without git CLI)
+   */
+  async ensureRemoteBranch(repoOwnerOrUrl: string, branchName: string, repoName?: string): Promise<boolean> {
+    const cleanToken = (this.token || process.env.GITHUB_TOKEN || '').trim().replace(/^['"]|['"]$/g, '');
+    if (!cleanToken || cleanToken.includes('mock')) return false;
+
+    let owner = repoOwnerOrUrl;
+    let name = repoName || '';
+
+    if (repoOwnerOrUrl.includes('github.com')) {
+      const match = repoOwnerOrUrl.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
+      if (match) {
+        owner = match[1];
+        name = match[2].replace(/\.git$/, '');
+      }
+    }
+
+    if (!owner || !name) return false;
+
+    try {
+      // 1. Check if branch already exists
+      const checkRes = await fetch(`https://api.github.com/repos/${owner}/${name}/git/ref/heads/${branchName}`, {
+        headers: { Authorization: `Bearer ${cleanToken}`, Accept: 'application/vnd.github.v3+json' }
+      });
+      if (checkRes.ok) return true;
+
+      // 2. Fetch base branch SHA (master or main)
+      let baseSha = '';
+      for (const base of ['master', 'main']) {
+        const baseRes = await fetch(`https://api.github.com/repos/${owner}/${name}/git/ref/heads/${base}`, {
+          headers: { Authorization: `Bearer ${cleanToken}`, Accept: 'application/vnd.github.v3+json' }
+        });
+        if (baseRes.ok) {
+          const baseData = await baseRes.json();
+          baseSha = baseData.object?.sha;
+          if (baseSha) break;
+        }
+      }
+
+      if (!baseSha) {
+        await logger.warn(`Could not find base branch SHA on ${owner}/${name}`);
+        return false;
+      }
+
+      // 3. Create branch ref via GitHub API
+      const createRes = await fetch(`https://api.github.com/repos/${owner}/${name}/git/refs`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${cleanToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/vnd.github.v3+json'
+        },
+        body: JSON.stringify({
+          ref: `refs/heads/${branchName}`,
+          sha: baseSha
+        })
+      });
+
+      if (createRes.ok) {
+        await logger.info(`Created branch ${branchName} on ${owner}/${name} via GitHub REST API`);
+        return true;
+      } else {
+        const err = await createRes.text();
+        await logger.warn(`GitHub API ref creation returned: ${err}`);
+        return false;
+      }
+    } catch (err: any) {
+      await logger.warn(`Failed to ensure remote branch via GitHub API: ${err.message}`);
+      return false;
+    }
+  }
 }
 
 export const githubClient = new GitHubClient();

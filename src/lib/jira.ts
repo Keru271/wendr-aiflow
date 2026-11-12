@@ -102,7 +102,7 @@ export class JiraClient {
     };
   }
 
-  async searchIssues(jql: string = 'order by created DESC', maxResults: number = 25): Promise<Array<{
+  async searchIssues(jql: string = 'created >= -365d order by created DESC', maxResults: number = 25): Promise<Array<{
     id: string;
     key: string;
     projectKey: string;
@@ -112,6 +112,17 @@ export class JiraClient {
     labels: string[];
     created: string;
   }>> {
+    // Atlassian Jira Cloud rejects unbounded JQL queries with HTTP 400. Ensure query has a restriction.
+    let boundedJql = (jql || '').trim();
+    if (!boundedJql || boundedJql.toLowerCase() === 'order by created desc' || boundedJql.toLowerCase().startsWith('order by')) {
+      boundedJql = `created >= -365d ${boundedJql || 'order by created DESC'}`;
+    } else {
+      const lower = boundedJql.toLowerCase();
+      if (!lower.includes('project') && !lower.includes('created') && !lower.includes('updated') && !lower.includes('issue') && !lower.includes('id') && !lower.includes('status')) {
+        boundedJql = `created >= -365d AND (${boundedJql})`;
+      }
+    }
+
     if (this.authHeader && !this.host.includes('mock') && !this.host.includes('localhost') && !this.host.includes('your-company')) {
       try {
         const res = await fetch(`${this.host}/rest/api/3/search/jql`, {
@@ -122,7 +133,7 @@ export class JiraClient {
             Accept: 'application/json'
           },
           body: JSON.stringify({
-            jql,
+            jql: boundedJql,
             maxResults,
             fields: ['key', 'summary', 'status', 'labels', 'created', 'priority', 'project']
           })

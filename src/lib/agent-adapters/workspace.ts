@@ -4,6 +4,7 @@ import * as os from 'os';
 import { exec } from 'child_process';
 import simpleGit, { SimpleGit } from 'simple-git';
 import { logger } from '../observability';
+import { githubClient } from '../github';
 
 export interface WorkspaceConfig {
   jobId: string;
@@ -72,22 +73,31 @@ export class WorkspaceManager {
 
     const git = simpleGit(dir);
 
-    if (!cloned) {
-      await git.init();
-      // Create a base file if empty
-      const readmePath = path.join(dir, 'README.md');
-      if (!fs.existsSync(readmePath)) {
-        fs.writeFileSync(readmePath, `# Repository Workspace for ${config.jiraKey}\n\nManaged by FixPilot.\n`);
-        await git.add('.');
-        await git.commit('Initial base commit');
+    try {
+      if (!cloned) {
+        await git.init();
+        // Create a base file if empty
+        const readmePath = path.join(dir, 'README.md');
+        if (!fs.existsSync(readmePath)) {
+          fs.writeFileSync(readmePath, `# Repository Workspace for ${config.jiraKey}\n\nManaged by FixPilot.\n`);
+          try {
+            await git.add('.');
+            await git.commit('Initial base commit');
+          } catch {
+            // non-fatal in serverless
+          }
+        }
       }
+
+      await git.addConfig('user.name', 'FixPilot Autonomous Agent');
+      await git.addConfig('user.email', 'agent@fixpilot.ai');
+      await git.checkoutLocalBranch(branchName);
+    } catch (gitErr: any) {
+      await logger.warn(`Native git initialization warning: ${gitErr.message}. Operating with filesystem workspace.`, {
+        jobId: config.jobId,
+        stage: 'WORKSPACE'
+      });
     }
-
-    await git.addConfig('user.name', 'FixPilot Autonomous Agent');
-    await git.addConfig('user.email', 'agent@fixpilot.ai');
-
-    // Checkout feature branch
-    await git.checkoutLocalBranch(branchName);
 
     await logger.info(`Created isolated workspace at ${dir} on branch ${branchName}`, {
       jobId: config.jobId,
@@ -102,20 +112,41 @@ export class WorkspaceManager {
     if (!fs.existsSync(dir)) {
       throw new Error(`Workspace directory does not exist for job ${jobId}`);
     }
-    const git = simpleGit(dir);
-    if (authedRemoteUrl) {
-      const remotes = await git.getRemotes();
-      if (remotes.some((r) => r.name === 'origin')) {
-        await git.remote(['set-url', 'origin', authedRemoteUrl]);
-      } else {
-        await git.addRemote('origin', authedRemoteUrl);
+
+    let pushSuccess = false;
+    try {
+      const git = simpleGit(dir);
+      if (authedRemoteUrl) {
+        const remotes = await git.getRemotes();
+        if (remotes.some((r) => r.name === 'origin')) {
+          await git.remote(['set-url', 'origin', authedRemoteUrl]);
+        } else {
+          await git.addRemote('origin', authedRemoteUrl);
+        }
+      }
+      await git.push('origin', branchName, ['--set-upstream', '--force']);
+      pushSuccess = true;
+      await logger.info(`Pushed branch ${branchName} to origin for job ${jobId}`, {
+        jobId,
+        stage: 'WORKSPACE'
+      });
+    } catch (gitErr: any) {
+      await logger.warn(`Git CLI push failed (${gitErr.message}). Falling back to GitHub REST API branch creation...`, {
+        jobId,
+        stage: 'WORKSPACE'
+      });
+    }
+
+    // Fallback: If git CLI push failed (e.g. serverless container without git binary), ensure branch via GitHub API
+    if (!pushSuccess && authedRemoteUrl) {
+      const remoteCreated = await githubClient.ensureRemoteBranch(authedRemoteUrl, branchName);
+      if (remoteCreated) {
+        await logger.info(`Branch ${branchName} successfully ensured via GitHub API for job ${jobId}`, {
+          jobId,
+          stage: 'WORKSPACE'
+        });
       }
     }
-    await git.push('origin', branchName, ['--set-upstream', '--force']);
-    await logger.info(`Pushed branch ${branchName} to origin for job ${jobId}`, {
-      jobId,
-      stage: 'WORKSPACE'
-    });
   }
 
   async getDiff(jobId: string): Promise<string> {

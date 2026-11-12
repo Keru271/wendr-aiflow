@@ -2,11 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import { JobStatus } from '@/lib/types';
 import { orchestrator } from '@/lib/orchestrator';
+import { autoSyncJiraIssues } from '@/lib/jira-sync';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
+    // Automatically detect and sync any newly created issues from Jira Cloud
+    await autoSyncJiraIssues().catch(() => {});
+
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
     const projectId = searchParams.get('projectId');

@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const jql = searchParams.get('jql') || 'order by created DESC';
+    const jql = searchParams.get('jql') || 'created >= -365d order by created DESC';
     const limit = parseInt(searchParams.get('limit') || '30', 10);
 
     const jiraIssues = await jiraClient.searchIssues(jql, limit);
