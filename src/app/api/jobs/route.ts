@@ -3,6 +3,8 @@ import db from '@/lib/db';
 import { JobStatus } from '@/lib/types';
 import { orchestrator } from '@/lib/orchestrator';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);

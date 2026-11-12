@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import React, { useState, useEffect } from 'react';
 import { FolderKanban, GitBranch, Github, Plus, RefreshCw, X, CheckCircle2 } from 'lucide-react';
 

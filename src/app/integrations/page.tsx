@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import React, { useState } from 'react';
 import { Plug, CheckCircle2, Copy, Check, ExternalLink, ShieldAlert } from 'lucide-react';
 
