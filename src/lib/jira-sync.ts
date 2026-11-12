@@ -12,8 +12,8 @@ export async function autoSyncJiraIssues(): Promise<{
   newIssueKeys: string[];
 }> {
   try {
-    // 1. Search Jira Cloud with bounded JQL query (prevent 400 error)
-    const jiraIssues = await jiraClient.searchIssues('created >= -90d order by created DESC', 20);
+    // 1. Search Jira Cloud specifically for project WEB with bounded JQL query
+    const jiraIssues = await jiraClient.searchIssues('project = "WEB" AND created >= -90d order by created DESC', 20);
     if (!jiraIssues || jiraIssues.length === 0) {
       return { syncedCount: 0, newIssueKeys: [] };
     }
@@ -24,8 +24,8 @@ export async function autoSyncJiraIssues(): Promise<{
     });
     const existingKeys = new Set(existingBugs.map((b) => b.jiraIssueKey));
 
-    // 3. Filter for genuinely new issues
-    const newIssues = jiraIssues.filter((i) => !existingKeys.has(i.key));
+    // 3. Filter strictly for genuinely new WEB project issues
+    const newIssues = jiraIssues.filter((i) => i.key.startsWith('WEB-') && !existingKeys.has(i.key));
     if (newIssues.length === 0) {
       return { syncedCount: 0, newIssueKeys: [] };
     }

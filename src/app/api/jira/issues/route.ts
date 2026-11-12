@@ -7,10 +7,10 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const jql = searchParams.get('jql') || 'created >= -365d order by created DESC';
+    const jql = searchParams.get('jql') || 'project = "WEB" AND created >= -365d order by created DESC';
     const limit = parseInt(searchParams.get('limit') || '30', 10);
 
-    const jiraIssues = await jiraClient.searchIssues(jql, limit);
+    const jiraIssues = (await jiraClient.searchIssues(jql, limit)).filter(i => i.key.startsWith('WEB-'));
 
     // Check which of these are already in FixPilot DB
     const existingBugs = await db.bug.findMany({
