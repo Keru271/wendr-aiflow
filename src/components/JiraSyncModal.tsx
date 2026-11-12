@@ -47,18 +47,30 @@ export default function JiraSyncModal({ isOpen, onClose, onImportSuccess }: Jira
   const [customKey, setCustomKey] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showWebhookGuide, setShowWebhookGuide] = useState(false);
+  const [repositories, setRepositories] = useState<any[]>([]);
+  const [selectedRepoIds, setSelectedRepoIds] = useState<string[]>([]);
+  const [targetAllRepos, setTargetAllRepos] = useState(true);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const fetchJiraIssues = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/jira/issues?limit=30');
-      const data = await res.json();
-      if (res.ok && data.issues) {
+      const [jiraRes, repoRes] = await Promise.all([
+        fetch('/api/jira/issues?limit=30'),
+        fetch('/api/repositories')
+      ]);
+      const data = await jiraRes.json();
+      const repoData = await repoRes.json();
+
+      if (jiraRes.ok && data.issues) {
         setIssues(data.issues);
       } else {
         setError(data.error || 'Failed to fetch issues from Jira Cloud');
+      }
+
+      if (repoRes.ok && repoData.repositories) {
+        setRepositories(repoData.repositories);
       }
     } catch (err: any) {
       setError(err.message || 'Error connecting to Jira API');
@@ -85,7 +97,11 @@ export default function JiraSyncModal({ isOpen, onClose, onImportSuccess }: Jira
       const res = await fetch('/api/jira/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ issueKey: key, autoStart: true })
+        body: JSON.stringify({
+          issueKey: key,
+          autoStart: true,
+          repositoryIds: targetAllRepos ? [] : selectedRepoIds
+        })
       });
 
       const data = await res.json();
@@ -160,6 +176,58 @@ export default function JiraSyncModal({ isOpen, onClose, onImportSuccess }: Jira
               <span>{importingKey === customKey.trim().toUpperCase() ? 'Importing...' : 'Import Issue'}</span>
             </button>
           </div>
+
+          {/* Multi-Repository Association (An Issue can relate to N repositories) */}
+          {repositories.length > 0 && (
+            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-white flex items-center gap-1.5">
+                  <span>Target Repositories</span>
+                  <span className="text-[10px] text-slate-400 font-normal">
+                    (Issue can relate to N repositories)
+                  </span>
+                </span>
+                <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-indigo-400">
+                  <input
+                    type="checkbox"
+                    checked={targetAllRepos}
+                    onChange={(e) => setTargetAllRepos(e.target.checked)}
+                    className="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-0"
+                  />
+                  <span>All Repositories / Auto-detection</span>
+                </label>
+              </div>
+
+              {!targetAllRepos && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {repositories.map((r) => {
+                    const isSelected = selectedRepoIds.includes(r.id);
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedRepoIds(selectedRepoIds.filter((id) => id !== r.id));
+                          } else {
+                            setSelectedRepoIds([...selectedRepoIds, r.id]);
+                          }
+                        }}
+                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-mono transition-all ${
+                          isSelected
+                            ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        {isSelected ? '✓ ' : '+ '}
+                        {r.owner ? `${r.owner}/${r.name}` : r.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {message && (
             <div

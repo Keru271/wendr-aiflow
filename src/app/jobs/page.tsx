@@ -168,12 +168,27 @@ export default function JobsPage() {
                     </span>
                   </td>
                   <td className="py-4 px-5">
-                    {job.pullRequest ? (
+                    {job.pullRequests && job.pullRequests.length > 0 ? (
+                      <div className="flex flex-col gap-1">
+                        {job.pullRequests.map((pr: any) => (
+                          <a
+                            key={pr.id}
+                            href={pr.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-emerald-400 hover:underline text-xs"
+                          >
+                            <GitPullRequest className="w-3.5 h-3.5" />
+                            <span>PR #{pr.number} {pr.repository?.name ? `(${pr.repository.name})` : ''}</span>
+                          </a>
+                        ))}
+                      </div>
+                    ) : job.pullRequest ? (
                       <a
                         href={job.pullRequest.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-emerald-400 hover:underline"
+                        className="inline-flex items-center gap-1 text-emerald-400 hover:underline text-xs"
                       >
                         <GitPullRequest className="w-3.5 h-3.5" />
                         <span>PR #{job.pullRequest.number}</span>

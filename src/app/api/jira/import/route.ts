@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { issueKey, autoStart = true } = body;
+    const { issueKey, autoStart = true, repositoryIds } = body;
 
     if (!issueKey) {
       return NextResponse.json({ error: 'Missing required field: issueKey' }, { status: 400 });
@@ -24,18 +24,55 @@ export async function POST(req: NextRequest) {
     // Resolve or create Project
     const projectKey = issue.projectKey || issueKey.split('-')[0] || 'WEB';
     let project = await db.project.findFirst({
-      where: { key: projectKey }
+      where: { key: projectKey },
+      include: { repositories: true }
     });
 
     if (!project) {
       // Find fallback or create
-      project = await db.project.findFirst();
+      project = await db.project.findFirst({
+        include: { repositories: true }
+      });
       if (!project) {
         return NextResponse.json({ error: 'No project configured in FixPilot' }, { status: 400 });
       }
     }
 
-    // Upsert bug
+    // Determine target repositories for this issue (N repositories)
+    let repoConnect: Array<{ id: string }> = [];
+    if (Array.isArray(repositoryIds) && repositoryIds.length > 0) {
+      repoConnect = repositoryIds.map((id: string) => ({ id }));
+    } else {
+      const textToSearch = `${issue.summary} ${issue.description || ''} ${(issue.labels || []).join(' ')}`.toLowerCase();
+      const isAllRepos =
+        textToSearch.includes('all repository') ||
+        textToSearch.includes('all repositories') ||
+        textToSearch.includes('all repos') ||
+        textToSearch.includes('throughout the application') ||
+        textToSearch.includes('across all');
+
+      if (isAllRepos && project.repositories.length > 0) {
+        repoConnect = project.repositories.map((r) => ({ id: r.id }));
+      } else {
+        const matched = project.repositories.filter((r) => {
+          const rName = r.name.toLowerCase();
+          const parts = rName.split(/[-_]/).filter((p) => p.length >= 4);
+          return (
+            (issue.labels || []).some((l: string) => l.toLowerCase() === rName || l.toLowerCase() === `repo:${rName}`) ||
+            textToSearch.includes(rName) ||
+            parts.some((p) => textToSearch.includes(p))
+          );
+        });
+
+        if (matched.length > 0) {
+          repoConnect = matched.map((r) => ({ id: r.id }));
+        } else if (project.repositories.length > 0) {
+          repoConnect = [{ id: project.repositories[0].id }];
+        }
+      }
+    }
+
+    // Upsert bug and associate with N repositories
     const bug = await db.bug.upsert({
       where: {
         projectId_jiraIssueId: {
@@ -48,7 +85,8 @@ export async function POST(req: NextRequest) {
         description: issue.description,
         status: issue.status,
         priority: issue.priority,
-        labels: JSON.stringify(issue.labels)
+        labels: JSON.stringify(issue.labels),
+        ...(repoConnect.length > 0 ? { repositories: { set: repoConnect } } : {})
       },
       create: {
         projectId: project.id,
@@ -58,7 +96,11 @@ export async function POST(req: NextRequest) {
         description: issue.description,
         status: issue.status,
         priority: issue.priority,
-        labels: JSON.stringify(issue.labels)
+        labels: JSON.stringify(issue.labels),
+        ...(repoConnect.length > 0 ? { repositories: { connect: repoConnect } } : {})
+      },
+      include: {
+        repositories: true
       }
     });
 

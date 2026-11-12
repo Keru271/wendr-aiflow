@@ -6,7 +6,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const job = await db.agentJob.findUnique({
       where: { id: params.id },
       include: {
-        bug: true,
+        bug: {
+          include: { repositories: true }
+        },
         project: {
           include: { repositories: true }
         },
@@ -17,7 +19,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         validations: {
           orderBy: { createdAt: 'asc' }
         },
-        pullRequest: true,
+        pullRequests: {
+          include: { repository: true }
+        },
         deployments: {
           orderBy: { createdAt: 'desc' }
         },
@@ -38,7 +42,12 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ job });
+    return NextResponse.json({
+      job: {
+        ...job,
+        pullRequest: job.pullRequests?.[0] || null
+      }
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

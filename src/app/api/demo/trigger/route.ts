@@ -89,7 +89,9 @@ export async function POST() {
         project: true,
         executions: true,
         validations: true,
-        pullRequest: true,
+        pullRequests: {
+          include: { repository: true }
+        },
         deployments: true,
         logs: { take: 50, orderBy: { createdAt: 'desc' } }
       }

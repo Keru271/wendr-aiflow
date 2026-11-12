@@ -41,17 +41,49 @@ export async function POST(req: NextRequest) {
     const labels: string[] = issue.fields?.labels || [];
     const hasOptIn = labels.some((l: string) => l.toLowerCase() === 'ai-fix-opt-in' || l.toLowerCase() === 'fixpilot');
 
-    // Resolve project
+    // Resolve project and its repositories
     const projectKey = issue.key.split('-')[0];
     let project = await db.project.findFirst({
-      where: { key: projectKey }
+      where: { key: projectKey },
+      include: { repositories: true }
     });
 
     if (!project) {
       // Find fallback or create
-      project = await db.project.findFirst();
+      project = await db.project.findFirst({
+        include: { repositories: true }
+      });
       if (!project) {
         return NextResponse.json({ error: 'No matching project found in FixPilot' }, { status: 400 });
+      }
+    }
+
+    // Determine target repositories for this issue (N repositories)
+    let repoConnect: Array<{ id: string }> = [];
+    const textToSearch = `${issue.fields?.summary || ''} ${JSON.stringify(issue.fields?.description || '')} ${labels.join(' ')}`.toLowerCase();
+    const isAllRepos =
+      textToSearch.includes('all repository') ||
+      textToSearch.includes('all repositories') ||
+      textToSearch.includes('all repos') ||
+      textToSearch.includes('throughout the application') ||
+      textToSearch.includes('across all');
+
+    if (isAllRepos && project.repositories.length > 0) {
+      repoConnect = project.repositories.map((r) => ({ id: r.id }));
+    } else {
+      const matched = project.repositories.filter((r) => {
+        const rName = r.name.toLowerCase();
+        const parts = rName.split(/[-_]/).filter((p) => p.length >= 4);
+        return (
+          labels.some((l: string) => l.toLowerCase() === rName || l.toLowerCase() === `repo:${rName}`) ||
+          textToSearch.includes(rName) ||
+          parts.some((p) => textToSearch.includes(p))
+        );
+      });
+      if (matched.length > 0) {
+        repoConnect = matched.map((r) => ({ id: r.id }));
+      } else if (project.repositories.length > 0) {
+        repoConnect = [{ id: project.repositories[0].id }];
       }
     }
 
@@ -67,7 +99,8 @@ export async function POST(req: NextRequest) {
         title: issue.fields?.summary || issue.key,
         description: issue.fields?.description?.content ? JSON.stringify(issue.fields.description) : (issue.fields?.description || ''),
         status: issue.fields?.status?.name || 'Open',
-        labels: JSON.stringify(labels)
+        labels: JSON.stringify(labels),
+        ...(repoConnect.length > 0 ? { repositories: { set: repoConnect } } : {})
       },
       create: {
         projectId: project.id,
@@ -78,7 +111,8 @@ export async function POST(req: NextRequest) {
         status: issue.fields?.status?.name || 'Open',
         priority: issue.fields?.priority?.name || 'High',
         labels: JSON.stringify(labels),
-        sourcePayload: JSON.stringify(issue)
+        sourcePayload: JSON.stringify(issue),
+        ...(repoConnect.length > 0 ? { repositories: { connect: repoConnect } } : {})
       }
     });
 

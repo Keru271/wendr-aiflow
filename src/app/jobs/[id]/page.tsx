@@ -258,6 +258,19 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             <span className="text-slate-500">•</span>
             <h2 className="text-xl font-bold text-white">{job.bug?.title}</h2>
           </div>
+
+          {/* Related Repositories Badges (N Repositories Support) */}
+          <div className="flex items-center gap-2 flex-wrap pt-1.5">
+            <span className="text-[11px] text-slate-400 flex items-center gap-1">
+              <GitBranch className="w-3 h-3 text-indigo-400" />
+              <span>Target Repositories ({(job.bug?.repositories?.length || job.project?.repositories?.length || 0)}):</span>
+            </span>
+            {(job.bug?.repositories?.length > 0 ? job.bug.repositories : (job.project?.repositories || [])).map((r: any) => (
+              <span key={r.id || r.name} className="px-2 py-0.5 rounded-md bg-indigo-950/60 border border-indigo-500/30 text-indigo-300 text-[10px] font-mono">
+                {r.owner ? `${r.owner}/${r.name}` : r.name}
+              </span>
+            ))}
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
@@ -554,36 +567,52 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
         {/* Right Column (1 col): PR + Staging + Logs */}
         <div className="space-y-6">
-          {/* GitHub Pull Request Box */}
+          {/* GitHub Pull Requests Box (N Repositories Support) */}
           <div className="p-6 rounded-xl border border-slate-800 bg-[#0d1322]/80 space-y-4">
-            <h3 className="text-sm font-semibold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
-              <GitPullRequest className="w-4 h-4 text-blue-400" />
-              <span>GitHub Pull Request</span>
-            </h3>
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <GitPullRequest className="w-4 h-4 text-blue-400" />
+                <span>GitHub Pull Requests</span>
+              </h3>
+              <span className="text-[11px] font-mono text-slate-400">
+                {(job.pullRequests?.length || (job.pullRequest ? 1 : 0))} PR{((job.pullRequests?.length || (job.pullRequest ? 1 : 0)) !== 1 ? 's' : '')}
+              </span>
+            </div>
 
-            {job.pullRequest ? (
-              <div className="space-y-3 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-white">PR #{job.pullRequest.number}</span>
-                  <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-semibold">
-                    {job.pullRequest.status}
-                  </span>
-                </div>
-                <div className="text-slate-300 font-medium">{job.pullRequest.title}</div>
-                <div className="font-mono text-[11px] text-slate-400">Branch: {job.pullRequest.branchName}</div>
-                <a
-                  href={job.pullRequest.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs font-semibold w-full justify-center transition-colors"
-                >
-                  <span>View PR on GitHub</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
+            {(job.pullRequests && job.pullRequests.length > 0) || job.pullRequest ? (
+              <div className="space-y-3">
+                {(job.pullRequests && job.pullRequests.length > 0 ? job.pullRequests : [job.pullRequest]).map((pr: any, idx: number) => (
+                  <div key={pr.id || idx} className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-mono font-semibold">
+                          {pr.repository?.name || (pr.url?.includes('CMS_FRONTEND') ? 'CMS_FRONTEND' : (pr.url?.includes('wendr_homepage') ? 'wendr_homepage' : 'Repository'))}
+                        </span>
+                        <span className="font-semibold text-white text-xs">PR #{pr.number}</span>
+                      </div>
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-semibold">
+                        {pr.status}
+                      </span>
+                    </div>
+
+                    <div className="text-slate-300 text-xs font-medium truncate">{pr.title}</div>
+                    <div className="font-mono text-[11px] text-slate-400">Branch: {pr.branchName}</div>
+
+                    <a
+                      href={pr.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs font-semibold w-full justify-center transition-colors"
+                    >
+                      <span>View PR on GitHub</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                ))}
               </div>
             ) : (
-              <div className="text-xs text-slate-500 py-3">
-                PR will be generated once Antigravity passes QA verification.
+              <div className="text-xs text-slate-500 py-3 text-center">
+                PRs will be generated once Antigravity passes QA verification.
               </div>
             )}
           </div>

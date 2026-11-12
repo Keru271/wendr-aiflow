@@ -109,7 +109,10 @@ model Repository {
   settings       String?  // JSON stringified commands & paths
   createdAt      DateTime @default(now())
 
-  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  bugs           Bug[]            // An issue can relate to N repositories
+  pullRequests   PullRequest[]
+  workspaces     AgentWorkspace[]
 
   @@unique([projectId, githubRepoId])
 }
@@ -128,7 +131,8 @@ model Bug {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project         Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  repositories    Repository[] // An issue can relate to N repositories
   jobs            AgentJob[]
 
   @@unique([projectId, jiraIssueId])
@@ -168,7 +172,7 @@ model AgentJob {
   workspaces      AgentWorkspace[]
   logs            JobLog[]
   validations     ValidationRun[]
-  pullRequest     PullRequest?
+  pullRequests    PullRequest[]
   deployments     Deployment[]
   approvals       Approval[]
   artifacts       Artifact[]
@@ -199,17 +203,22 @@ model AgentExecution {
 }
 
 model AgentWorkspace {
-  id              String    @id @default(cuid())
+  id              String      @id @default(cuid())
   jobId           String
+  repositoryId    String?
+  repositoryName  String?
   directoryPath   String
   branchName      String
   baseSha         String?
   headSha         String?
-  status          String    @default("ACTIVE") // ACTIVE, CLEANED, DESTROYED
-  createdAt       DateTime  @default(now())
+  status          String      @default("ACTIVE") // ACTIVE, CLEANED, DESTROYED
+  createdAt       DateTime    @default(now())
   destroyedAt     DateTime?
 
-  job             AgentJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  job             AgentJob    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  repository      Repository? @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
+
+  @@index([jobId])
 }
 
 model JobLog {
@@ -249,20 +258,25 @@ model ValidationRun {
 }
 
 model PullRequest {
-  id             String   @id @default(cuid())
-  jobId          String   @unique
+  id             String      @id @default(cuid())
+  jobId          String
+  repositoryId   String?
   githubPrId     String
   number         Int
   url            String
   title          String
   branchName     String
   commitSha      String?
-  status         String   @default("OPEN") // OPEN, MERGED, CLOSED
+  status         String      @default("OPEN") // OPEN, MERGED, CLOSED
   mergedAt       DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 
-  job            AgentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  job            AgentJob    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  repository     Repository? @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
+
+  @@unique([jobId, repositoryId])
+  @@index([jobId])
 }
 
 model Approval {

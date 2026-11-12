@@ -21,15 +21,22 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: 'desc' },
       take: limit,
       include: {
-        bug: true,
+        bug: {
+          include: { repositories: true }
+        },
         project: { select: { id: true, name: true, key: true } },
-        pullRequest: true,
+        pullRequests: { include: { repository: true } },
         deployments: { orderBy: { createdAt: 'desc' }, take: 1 },
         validations: { select: { status: true } }
       }
     });
 
-    return NextResponse.json({ jobs });
+    const formattedJobs = jobs.map((j) => ({
+      ...j,
+      pullRequest: j.pullRequests?.[0] || null
+    }));
+
+    return NextResponse.json({ jobs: formattedJobs });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

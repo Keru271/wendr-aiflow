@@ -8,6 +8,7 @@ export async function GET() {
     const pullRequests = await db.pullRequest.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
+        repository: true,
         job: {
           include: {
             bug: true,

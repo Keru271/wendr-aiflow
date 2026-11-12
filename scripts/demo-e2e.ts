@@ -50,16 +50,21 @@ async function runDemo() {
     where: { id: job.id },
     include: {
       validations: true,
-      pullRequest: true,
+      pullRequests: {
+        include: { repository: true }
+      },
       deployments: true
     }
   });
 
+  const firstPr = jobAtGate?.pullRequests?.[0];
+
   console.log('\n---------------------------------------------------------------');
   console.log(`[Step 3] Reached State: ${jobAtGate?.status}`);
-  console.log(`         GitHub Pull Request: ${jobAtGate?.pullRequest?.url}`);
-  console.log(`         PR Title: ${jobAtGate?.pullRequest?.title}`);
-  console.log(`         PR Branch: ${jobAtGate?.pullRequest?.branchName}`);
+  console.log(`         GitHub Pull Requests (${jobAtGate?.pullRequests?.length || 0}):`);
+  jobAtGate?.pullRequests?.forEach((pr, i) => {
+    console.log(`           [PR #${pr.number} | ${pr.repository?.name || 'repo'}] ${pr.url} (${pr.branchName})`);
+  });
   console.log('         Automated QA Results:');
   jobAtGate?.validations.forEach((v) => {
     console.log(`           • [${v.status}] ${v.name} (${v.command}) -> ${v.durationMs}ms`);
