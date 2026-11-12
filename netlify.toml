@@ -1,41 +1,16 @@
 "$schema" = "https://open-api.netlify.com/netlify.schema.json"
 
 # ==============================================================================
-# FixPilot — Netlify Production Deployment Configuration
+# FixPilot — Next.js Netlify Production Configuration
 # ==============================================================================
 
 [build]
   command = "npm run build"
-  publish = "apps/dashboard/.next"
-  environment = { NODE_VERSION = "22", NPM_FLAGS = "--include=dev" }
-
-[functions]
-  directory = "netlify/functions"
-  node_bundler = "esbuild"
-  external_node_modules = ["@prisma/client", "prisma"]
+  publish = ".next"
+  environment = { NODE_VERSION = "22" }
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
-
-# ------------------------------------------------------------------------------
-# Routing & Redirects
-# ------------------------------------------------------------------------------
-
-# Route API endpoints to the Netlify Serverless Function handler
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/api/:splat"
-  status = 200
-
-# Route Jira & GitHub Webhook endpoints to Netlify Serverless Function
-[[redirects]]
-  from = "/webhooks/*"
-  to = "/.netlify/functions/api/webhooks/:splat"
-  status = 200
-
-# ------------------------------------------------------------------------------
-# Global Security Headers
-# ------------------------------------------------------------------------------
 
 [[headers]]
   for = "/*"

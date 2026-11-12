@@ -1,5 +1,4 @@
 node_modules/
-dist/
 .next/
 out/
 .env
@@ -15,4 +14,5 @@ temp/
 coverage/
 prisma/*.db
 prisma/*.db-journal
-
+dev.db
+dev.db-journal

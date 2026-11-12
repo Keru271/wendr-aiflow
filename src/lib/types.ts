@@ -1,0 +1,92 @@
+export enum JobStatus {
+  RECEIVED = 'RECEIVED',
+  QUEUED = 'QUEUED',
+  INVESTIGATING = 'INVESTIGATING',
+  NEEDS_INFO = 'NEEDS_INFO',
+  READY_TO_FIX = 'READY_TO_FIX',
+  CODING = 'CODING',
+  QA = 'QA',
+  REVIEWING = 'REVIEWING',
+  READY_FOR_PR = 'READY_FOR_PR',
+  PR_CREATED = 'PR_CREATED',
+  HUMAN_REVIEW = 'HUMAN_REVIEW',
+  READY_TO_DEPLOY = 'READY_TO_DEPLOY',
+  DEPLOYING_STAGING = 'DEPLOYING_STAGING',
+  VERIFYING_STAGING = 'VERIFYING_STAGING',
+  AWAITING_PRODUCTION_APPROVAL = 'AWAITING_PRODUCTION_APPROVAL',
+  DEPLOYING_PRODUCTION = 'DEPLOYING_PRODUCTION',
+  VERIFYING_PRODUCTION = 'VERIFYING_PRODUCTION',
+  COMPLETED = 'COMPLETED',
+  ROLLED_BACK = 'ROLLED_BACK',
+  FAILED = 'FAILED',
+  CANCELLED = 'CANCELLED'
+}
+
+export enum AgentType {
+  INVESTIGATOR = 'INVESTIGATOR',
+  DEVELOPER = 'DEVELOPER',
+  QA = 'QA',
+  REVIEWER = 'REVIEWER'
+}
+
+export enum ValidationStatus {
+  PENDING = 'PENDING',
+  RUNNING = 'RUNNING',
+  PASSED = 'PASSED',
+  FAILED = 'FAILED',
+  SKIPPED = 'SKIPPED'
+}
+
+export enum DeploymentStatus {
+  PENDING = 'PENDING',
+  RUNNING = 'RUNNING',
+  AWAITING_APPROVAL = 'AWAITING_APPROVAL',
+  SUCCEEDED = 'SUCCEEDED',
+  FAILED = 'FAILED',
+  ROLLED_BACK = 'ROLLED_BACK',
+  CANCELLED = 'CANCELLED'
+}
+
+export enum UserRole {
+  ORGANIZATION_OWNER = 'ORGANIZATION_OWNER',
+  ADMIN = 'ADMIN',
+  DEVELOPER = 'DEVELOPER',
+  APPROVER = 'APPROVER',
+  VIEWER = 'VIEWER',
+  PLATFORM_OPERATOR = 'PLATFORM_OPERATOR'
+}
+
+export const VALID_JOB_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
+  [JobStatus.RECEIVED]: [JobStatus.QUEUED, JobStatus.FAILED, JobStatus.CANCELLED],
+  [JobStatus.QUEUED]: [JobStatus.INVESTIGATING, JobStatus.CANCELLED, JobStatus.FAILED],
+  [JobStatus.INVESTIGATING]: [JobStatus.NEEDS_INFO, JobStatus.READY_TO_FIX, JobStatus.HUMAN_REVIEW, JobStatus.FAILED, JobStatus.CANCELLED],
+  [JobStatus.NEEDS_INFO]: [JobStatus.INVESTIGATING, JobStatus.CANCELLED],
+  [JobStatus.READY_TO_FIX]: [JobStatus.CODING, JobStatus.HUMAN_REVIEW, JobStatus.CANCELLED, JobStatus.FAILED],
+  [JobStatus.CODING]: [JobStatus.QA, JobStatus.HUMAN_REVIEW, JobStatus.FAILED, JobStatus.CANCELLED],
+  [JobStatus.QA]: [JobStatus.REVIEWING, JobStatus.CODING, JobStatus.HUMAN_REVIEW, JobStatus.FAILED, JobStatus.CANCELLED],
+  [JobStatus.REVIEWING]: [JobStatus.READY_FOR_PR, JobStatus.HUMAN_REVIEW, JobStatus.CODING, JobStatus.FAILED, JobStatus.CANCELLED],
+  [JobStatus.READY_FOR_PR]: [JobStatus.PR_CREATED, JobStatus.FAILED, JobStatus.CANCELLED],
+  [JobStatus.PR_CREATED]: [JobStatus.HUMAN_REVIEW, JobStatus.READY_TO_DEPLOY, JobStatus.CANCELLED, JobStatus.FAILED],
+  [JobStatus.HUMAN_REVIEW]: [JobStatus.READY_TO_DEPLOY, JobStatus.CODING, JobStatus.CANCELLED, JobStatus.FAILED],
+  [JobStatus.READY_TO_DEPLOY]: [JobStatus.DEPLOYING_STAGING, JobStatus.FAILED, JobStatus.CANCELLED],
+  [JobStatus.DEPLOYING_STAGING]: [JobStatus.VERIFYING_STAGING, JobStatus.FAILED, JobStatus.CANCELLED],
+  [JobStatus.VERIFYING_STAGING]: [JobStatus.AWAITING_PRODUCTION_APPROVAL, JobStatus.FAILED, JobStatus.CANCELLED],
+  [JobStatus.AWAITING_PRODUCTION_APPROVAL]: [JobStatus.DEPLOYING_PRODUCTION, JobStatus.CANCELLED, JobStatus.FAILED],
+  [JobStatus.DEPLOYING_PRODUCTION]: [JobStatus.VERIFYING_PRODUCTION, JobStatus.FAILED, JobStatus.ROLLED_BACK],
+  [JobStatus.VERIFYING_PRODUCTION]: [JobStatus.COMPLETED, JobStatus.ROLLED_BACK, JobStatus.FAILED],
+  [JobStatus.COMPLETED]: [],
+  [JobStatus.ROLLED_BACK]: [],
+  [JobStatus.FAILED]: [JobStatus.QUEUED],
+  [JobStatus.CANCELLED]: []
+};
+
+export function isValidTransition(from: JobStatus, to: JobStatus): boolean {
+  return VALID_JOB_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+export interface UserSession {
+  userId: string;
+  email: string;
+  organizationId: string;
+  role: UserRole;
+}
