@@ -123,7 +123,7 @@ ${input.rollbackPlan || 'Revert this Pull Request or trigger 1-Click Rollback vi
           if (errText.includes('A pull request already exists')) {
             try {
               const listRes = await fetch(
-                `https://api.github.com/repos/${input.repoOwner}/${input.repoName}/pulls?head=${input.repoOwner}:${input.branchName}&state=open`,
+                `https://api.github.com/repos/${input.repoOwner}/${input.repoName}/pulls?head=${input.repoOwner}:${input.branchName}&state=all`,
                 {
                   headers: {
                     Authorization: `Bearer ${cleanToken}`,
@@ -135,7 +135,7 @@ ${input.rollbackPlan || 'Revert this Pull Request or trigger 1-Click Rollback vi
                 const existingPrs = await listRes.json();
                 if (existingPrs.length > 0) {
                   const existingPr = existingPrs[0];
-                  await logger.info(`Found existing open GitHub PR #${existingPr.number}: ${existingPr.html_url}`, {
+                  await logger.info(`Found existing GitHub PR #${existingPr.number}: ${existingPr.html_url}`, {
                     stage: 'GITHUB'
                   });
                   return {
@@ -144,7 +144,7 @@ ${input.rollbackPlan || 'Revert this Pull Request or trigger 1-Click Rollback vi
                     url: existingPr.html_url,
                     title: existingPr.title,
                     branchName: input.branchName,
-                    status: 'OPEN'
+                    status: existingPr.merged_at ? 'MERGED' : (existingPr.state === 'closed' ? 'CLOSED' : 'OPEN')
                   };
                 }
               }
@@ -277,31 +277,46 @@ ${input.rollbackPlan || 'Revert this Pull Request or trigger 1-Click Rollback vi
       if (refRes.ok) {
         const refData = await refRes.json();
         currentCommitSha = refData.object?.sha;
-      } else {
-        // Find base branch SHA
-        for (const base of [baseBranch, 'master', 'main']) {
-          const baseRes = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/git/ref/heads/${base}`, { headers: h });
-          if (baseRes.ok) {
-            const baseData = await baseRes.json();
-            currentCommitSha = baseData.object?.sha;
-            if (currentCommitSha) break;
-          }
+      }
+
+      // Find latest base branch SHA (master or main)
+      let baseSha = '';
+      for (const base of [baseBranch, 'master', 'main']) {
+        const baseRes = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/git/ref/heads/${base}`, { headers: h });
+        if (baseRes.ok) {
+          const baseData = await baseRes.json();
+          baseSha = baseData.object?.sha;
+          if (baseSha) break;
         }
+      }
 
-        if (!currentCommitSha) throw new Error(`Could not find base branch commit for ${repoOwner}/${repoName}`);
+      if (!currentCommitSha && !baseSha) throw new Error(`Could not find base branch commit for ${repoOwner}/${repoName}`);
 
+      let parentSha = currentCommitSha || baseSha;
+
+      if (!currentCommitSha && baseSha) {
         // Create the branch ref
         await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/git/refs`, {
           method: 'POST',
           headers: h,
-          body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: currentCommitSha })
+          body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: baseSha })
         });
+        parentSha = baseSha;
+      } else if (currentCommitSha && baseSha) {
+        // If the branch is equal to or behind baseSha (e.g. already merged), base the new commit directly on baseSha
+        try {
+          const compRes = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/compare/${baseSha}...${currentCommitSha}`, { headers: h });
+          if (compRes.ok) {
+            const compData = await compRes.json();
+            if (compData.ahead_by === 0) {
+              parentSha = baseSha;
+            }
+          }
+        } catch {}
       }
 
-      if (!currentCommitSha) return null;
-
-      // 2. Fetch base tree from current commit
-      const commitRes = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/git/commits/${currentCommitSha}`, { headers: h });
+      // 2. Fetch base tree from parent commit
+      const commitRes = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/git/commits/${parentSha}`, { headers: h });
       if (!commitRes.ok) return null;
       const commitData = await commitRes.json();
       const baseTreeSha = commitData.tree?.sha;
@@ -336,7 +351,7 @@ ${input.rollbackPlan || 'Revert this Pull Request or trigger 1-Click Rollback vi
         body: JSON.stringify({
           message: commitMessage,
           tree: treeData.sha,
-          parents: [currentCommitSha]
+          parents: [parentSha]
         })
       });
       if (!newCommitRes.ok) return null;
