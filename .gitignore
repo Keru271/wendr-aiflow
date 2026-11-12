@@ -10,6 +10,8 @@ pnpm-debug.log*
 *.tsbuildinfo
 .DS_Store
 workspaces/
+.workspaces/
+.workspaces
 temp/
 coverage/
 prisma/*.db
