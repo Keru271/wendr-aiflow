@@ -27,7 +27,9 @@ repositories:
       - "ProductList"
       - "OrderTable"
       - "CustomerManagement"
+      - "CustomerStudio"
       - "HomepageSectionsCustomizer"
+      - "Modal"
     keywords:
       - "cms"
       - "store setup"
@@ -41,6 +43,10 @@ repositories:
       - "categories"
       - "navigation"
       - "settings page"
+      - "design.md"
+      - "modal"
+      - "lightmode"
+      - "customer modal"
     owners:
       - "@cms-team"
 

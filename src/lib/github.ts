@@ -1,4 +1,6 @@
 import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import { logger } from './observability';
 
 export interface GitHubPullRequestInput {
@@ -483,6 +485,89 @@ ${input.rollbackPlan || 'Revert this Pull Request or trigger 1-Click Rollback vi
     } catch (err: any) {
       await logger.warn(`Failed to ensure remote branch via GitHub API: ${err.message}`);
       return false;
+    }
+  }
+
+  /**
+   * Download repository source files directly into target directory using GitHub Tree & Raw API.
+   * Provides guaranteed resilience in environments without native git binary (e.g. AWS Lambda / Netlify serverless).
+   */
+  async downloadRepositoryFiles(
+    repoOwner: string,
+    repoName: string,
+    branch: string = 'master',
+    targetDir: string
+  ): Promise<{ fileCount: number; success: boolean }> {
+    const cleanToken = (this.token || process.env.GITHUB_TOKEN || '').trim().replace(/^['"]|['"]$/g, '');
+    if (!cleanToken || cleanToken.includes('mock')) {
+      return { fileCount: 0, success: false };
+    }
+
+    try {
+      const headers = {
+        Authorization: `Bearer ${cleanToken}`,
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'FixPilot-Agent'
+      };
+
+      // 1. Fetch git tree recursively
+      const treeRes = await fetch(
+        `https://api.github.com/repos/${repoOwner}/${repoName}/git/trees/${branch}?recursive=1`,
+        { headers }
+      );
+      if (!treeRes.ok) {
+        await logger.warn(`Failed to fetch git tree for ${repoOwner}/${repoName} (${treeRes.status})`);
+        return { fileCount: 0, success: false };
+      }
+
+      const treeData = await treeRes.json();
+      if (!Array.isArray(treeData.tree)) {
+        return { fileCount: 0, success: false };
+      }
+
+      const ignoredPatterns = [
+        /^\.git(\/|$)/,
+        /^node_modules(\/|$)/,
+        /^\.next(\/|$)/,
+        /^dist(\/|$)/,
+        /^build(\/|$)/,
+        /\.(png|jpg|jpeg|gif|ico|webp|svg|woff|woff2|ttf|eot|mp4|webm|zip|tar|gz|pdf)$/i
+      ];
+
+      const blobEntries = treeData.tree.filter((item: any) => {
+        if (item.type !== 'blob') return false;
+        return !ignoredPatterns.some((pattern) => pattern.test(item.path));
+      });
+
+      let downloadedCount = 0;
+      const CHUNK_SIZE = 10;
+      for (let i = 0; i < blobEntries.length; i += CHUNK_SIZE) {
+        const chunk = blobEntries.slice(i, i + CHUNK_SIZE);
+        await Promise.all(
+          chunk.map(async (entry: any) => {
+            try {
+              const fileRawRes = await fetch(
+                `https://raw.githubusercontent.com/${repoOwner}/${repoName}/${branch}/${entry.path}`,
+                { headers: { Authorization: `Bearer ${cleanToken}` } }
+              );
+              if (fileRawRes.ok) {
+                const content = await fileRawRes.text();
+                const filePath = path.join(targetDir, entry.path);
+                fs.mkdirSync(path.dirname(filePath), { recursive: true });
+                fs.writeFileSync(filePath, content, 'utf8');
+                downloadedCount++;
+              }
+            } catch {
+              // skip failed file
+            }
+          })
+        );
+      }
+
+      return { fileCount: downloadedCount, success: downloadedCount > 0 };
+    } catch (err: any) {
+      await logger.error(`Error downloading repository files via GitHub API: ${err.message}`, err);
+      return { fileCount: 0, success: false };
     }
   }
 }

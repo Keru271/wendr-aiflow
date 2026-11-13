@@ -36,7 +36,8 @@ export class WorkspaceManager {
       try {
         fs.mkdirSync(this.cacheDir, { recursive: true });
       } catch {
-        // non-fatal
+        this.cacheDir = path.join(os.tmpdir(), 'fixpilot-base-clones');
+        try { fs.mkdirSync(this.cacheDir, { recursive: true }); } catch {}
       }
     }
   }
@@ -140,10 +141,24 @@ export class WorkspaceManager {
           await rootGit.clone(authedCloneUrl, dir, ['--depth', '1', '--branch', baseBranch]);
           cloned = true;
         } catch (cloneErr: any) {
-          await logger.warn(`Workspace direct git clone fallback failed: ${cloneErr.message}`, {
+          await logger.warn(`Workspace direct git clone fallback failed: ${cloneErr.message}. Attempting GitHub API tree download...`, {
             jobId: config.jobId,
             stage: 'WORKSPACE'
           });
+
+          // Serverless / No-git fallback: download repo files directly via GitHub REST API
+          const match = (config.repoCloneUrl || '').match(/github\.com[/:]([^/]+)\/([^/.]+)/);
+          if (match) {
+            const [, owner, repo] = match;
+            const dlResult = await githubClient.downloadRepositoryFiles(owner, repo, baseBranch, dir);
+            if (dlResult.success) {
+              cloned = true;
+              await logger.info(`[WORKSPACE] Populated workspace with ${dlResult.fileCount} source files via GitHub API fallback`, {
+                jobId: config.jobId,
+                stage: 'WORKSPACE'
+              });
+            }
+          }
         }
       }
     }

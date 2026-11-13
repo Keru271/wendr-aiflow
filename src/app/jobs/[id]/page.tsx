@@ -147,11 +147,13 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     setActionMessage('🚀 Google Antigravity has picked up this ticket. Starting investigation, code patch, and automated testing...');
     try {
       const res = await fetch(`/api/jobs/${params.id}/start`, { method: 'POST' });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
+        setActionMessage(`🚀 Google Antigravity has picked up this ticket. Starting investigation, code patch, and automated testing...`);
         await fetchJob();
       } else {
-        setActionMessage(`❌ Error starting Antigravity: ${data.error}`);
+        const errorMsg = data?.error || data?.message || res.statusText || 'Server error or request timed out';
+        setActionMessage(`❌ Error starting Antigravity: ${errorMsg}`);
       }
     } catch (err: any) {
       setActionMessage(`❌ Error: ${err.message}`);
@@ -173,12 +175,13 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           email: 'lead.approver@fixpilot.ai'
         })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setActionMessage('✅ Production deployment approved! Orchestrator released code to production and completed verification.');
         await fetchJob();
       } else {
-        setActionMessage(`❌ Approval failed: ${data.error}`);
+        const errorMsg = data?.error || data?.message || res.statusText || 'Approval failed';
+        setActionMessage(`❌ Approval failed: ${errorMsg}`);
       }
     } catch (err: any) {
       setActionMessage(`❌ Approval error: ${err.message}`);
@@ -198,12 +201,13 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           reason: 'Emergency rollback triggered by operator from dashboard.'
         })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setActionMessage('⚠️ Production rolled back to previous stable release.');
         await fetchJob();
       } else {
-        setActionMessage(`❌ Rollback error: ${data.error}`);
+        const errorMsg = data?.error || data?.message || res.statusText || 'Rollback failed';
+        setActionMessage(`❌ Rollback error: ${errorMsg}`);
       }
     } catch (err: any) {
       setActionMessage(`❌ Rollback error: ${err.message}`);
