@@ -1,18 +1,73 @@
 import * as crypto from 'crypto';
 import { logger } from './observability';
 
+export interface JiraAttachmentReference {
+  id: string;
+  filename: string;
+  mimeType: string;
+  url: string;
+  base64Data?: string; // Base64 encoded payload for multimodal AI reference
+}
+
 export interface CanonicalJiraIssue {
   id: string;
   key: string;
   projectKey: string;
   summary: string;
   description: string;
+  rawDescription?: any;
   status: string;
   priority: string;
   labels: string[];
   comments: string[];
-  attachments: Array<{ id: string; filename: string; mimeType: string; url: string }>;
+  attachments: JiraAttachmentReference[];
   aiFixEnabled: boolean;
+}
+
+/**
+ * Robust recursive parser converting Atlassian Document Format (ADF) into clean plain text prompt
+ */
+export function parseAdfToPlainText(doc: any): string {
+  if (!doc) return '';
+  if (typeof doc === 'string') {
+    try {
+      const parsed = JSON.parse(doc);
+      if (parsed && typeof parsed === 'object' && (parsed.type === 'doc' || parsed.content)) {
+        return parseAdfToPlainText(parsed);
+      }
+    } catch {
+      return doc.trim();
+    }
+    return doc.trim();
+  }
+  if (typeof doc !== 'object') return String(doc);
+
+  const textPieces: string[] = [];
+
+  const walk = (node: any) => {
+    if (!node) return;
+    if (node.type === 'text' && node.text) {
+      textPieces.push(node.text);
+    } else if (node.type === 'media' && node.attrs?.alt) {
+      textPieces.push(`[Attached Reference: ${node.attrs.alt}]`);
+    }
+
+    if (Array.isArray(node.content)) {
+      for (const child of node.content) {
+        walk(child);
+      }
+      if (['paragraph', 'heading', 'listItem', 'bulletList', 'orderedList'].includes(node.type)) {
+        textPieces.push('\n');
+      }
+    }
+  };
+
+  walk(doc);
+  return textPieces
+    .join(' ')
+    .replace(/\s*\n\s*/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
 }
 
 export class JiraClient {
@@ -38,6 +93,31 @@ export class JiraClient {
     }
   }
 
+  async downloadAttachment(contentUrl: string): Promise<{ data: string; mimeType: string; filename: string } | null> {
+    if (!this.authHeader || !contentUrl) return null;
+    try {
+      const res = await fetch(contentUrl, {
+        headers: {
+          Authorization: this.authHeader
+        }
+      });
+      if (res.ok) {
+        const buffer = await res.arrayBuffer();
+        const mimeType = res.headers.get('content-type') || 'application/octet-stream';
+        return {
+          data: Buffer.from(buffer).toString('base64'),
+          mimeType,
+          filename: contentUrl.split('/').pop() || 'attachment'
+        };
+      } else {
+        await logger.warn(`Failed to download Jira attachment ${contentUrl}: HTTP ${res.status}`);
+      }
+    } catch (err: any) {
+      await logger.warn(`Failed to download Jira attachment from ${contentUrl}: ${err.message}`);
+    }
+    return null;
+  }
+
   async fetchIssue(issueKey: string): Promise<CanonicalJiraIssue> {
     await logger.info(`Fetching canonical Jira issue ${issueKey}`, { stage: 'JIRA' });
 
@@ -53,22 +133,47 @@ export class JiraClient {
           const data: any = await res.json();
           const fields = data.fields || {};
           const labels = fields.labels || [];
+          const rawDesc = fields.description;
+          const parsedDesc = parseAdfToPlainText(rawDesc);
+          const description = parsedDesc || (typeof rawDesc === 'string' ? rawDesc : '');
+
+          const rawAttachments = fields.attachment || [];
+          const attachments: JiraAttachmentReference[] = [];
+          for (const a of rawAttachments) {
+            let base64Data: string | undefined;
+            if (a.mimeType?.startsWith('image/') || a.mimeType?.startsWith('text/')) {
+              try {
+                const downloaded = await this.downloadAttachment(a.content);
+                if (downloaded) {
+                  base64Data = downloaded.data;
+                }
+              } catch (err) {
+                // non-fatal
+              }
+            }
+            attachments.push({
+              id: a.id,
+              filename: a.filename,
+              mimeType: a.mimeType,
+              url: a.content,
+              base64Data
+            });
+          }
+
           return {
             id: data.id,
             key: data.key,
             projectKey: fields.project?.key || data.key.split('-')[0],
             summary: fields.summary || '',
-            description: typeof fields.description === 'string' ? fields.description : JSON.stringify(fields.description || ''),
+            description,
+            rawDescription: rawDesc,
             status: fields.status?.name || 'Open',
             priority: fields.priority?.name || 'Medium',
             labels,
-            comments: (fields.comment?.comments || []).map((c: any) => c.body || ''),
-            attachments: (fields.attachment || []).map((a: any) => ({
-              id: a.id,
-              filename: a.filename,
-              mimeType: a.mimeType,
-              url: a.content
-            })),
+            comments: (fields.comment?.comments || []).map((c: any) =>
+              typeof c.body === 'string' ? c.body : parseAdfToPlainText(c.body)
+            ),
+            attachments,
             aiFixEnabled: labels.includes('ai-auto-fix') || !!fields.customfield_ai_enabled
           };
         }

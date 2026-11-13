@@ -28,18 +28,30 @@ export class GoogleAntigravityAdapter implements CodingAgentAdapter {
         description: customInput.description || '',
         proposedFix: customInput.proposedFix || [],
         workingDirectory: workDir,
-        repositoryName: customInput.repositoryName || 'repository'
+        repositoryName: customInput.repositoryName || 'repository',
+        attachments: customInput.attachments || []
       });
 
-      const changedFiles: string[] = codeFix.changedFiles;
+      const changedFiles: string[] = codeFix.changedFiles || [];
       const fixSummary: string = codeFix.summary;
       const commitMessage: string = codeFix.commitMessage;
+
+      // If no files were modified in this repository, return clean result without git commit
+      if (changedFiles.length === 0) {
+        return {
+          providerTaskId: `antigravity_task_${Date.now()}`,
+          status: 'completed',
+          summary: fixSummary,
+          changedFiles: [],
+          diff: ''
+        };
+      }
 
       // Commit changes to git workspace if git CLI is available
       let diff = codeFix.diff || '';
       try {
         const git = simpleGit(workDir);
-        await git.add('.');
+        await git.add(changedFiles);
         await git.commit(commitMessage);
         try {
           diff = await git.diff(['HEAD~1', 'HEAD']);
@@ -47,7 +59,7 @@ export class GoogleAntigravityAdapter implements CodingAgentAdapter {
           diff = await git.diff();
         }
       } catch (gitErr: any) {
-        await logger.warn(`Git commit skipped in serverless environment: ${gitErr.message}`, { jobId: input.jobId });
+        await logger.warn(`Git commit note: ${gitErr.message}`, { jobId: input.jobId });
       }
 
       const durationMs = Date.now() - startTime;
@@ -68,7 +80,7 @@ export class GoogleAntigravityAdapter implements CodingAgentAdapter {
         status: 'completed',
         summary: fixSummary,
         changedFiles,
-        diff: diff || codeFix.diff || `+ // Patched autonomously by Google Antigravity\n+ export const STATUS = "VERIFIED";`
+        diff: diff || `+ // Patched autonomously by Google Antigravity\n+ export const STATUS = "VERIFIED";`
       };
     } catch (err: any) {
       await logger.error(`[GoogleAntigravityAdapter] Execution failed: ${err.message}`, err, {

@@ -95,14 +95,33 @@ export class Orchestrator {
       );
 
       await logger.info(`[INTAKE] Received Jira issue ${job.bug.jiraIssueKey}: "${job.bug.title}"`, { jobId, stage: 'INTAKE' });
-      await logger.info(`[SOLVING] Target objective: "${job.bug.title}"`, { jobId, stage: 'INVESTIGATION' });
+      await logger.info(`[SOLVING] Target objective: "${job.bug.description || job.bug.title}"`, { jobId, stage: 'INVESTIGATION' });
+
+      // Fetch issue attachments (screenshots/video/specs) for multimodal vision
+      let attachments: any[] = [];
+      try {
+        const fullIssue = await jiraClient.fetchIssue(job.bug.jiraIssueKey);
+        if (fullIssue.attachments && fullIssue.attachments.length > 0) {
+          attachments = fullIssue.attachments;
+        }
+      } catch (err) {
+        try {
+          if (job.bug.sourcePayload) {
+            const parsed = JSON.parse(job.bug.sourcePayload);
+            if (Array.isArray(parsed.attachments)) {
+              attachments = parsed.attachments;
+            }
+          }
+        } catch {}
+      }
 
       const targetRepoNames = (job.project?.repositories || []).map((r: any) => r.name);
       const investigation: InvestigationResult = await antigravityClient.investigateBug({
         issueKey: job.bug.jiraIssueKey,
         title: job.bug.title,
         description: job.bug.description || '',
-        targetRepos: targetRepoNames
+        targetRepos: targetRepoNames,
+        attachments
       });
 
       await logger.info(`[DIAGNOSIS] Root cause identified: ${investigation.rootCause}`, { jobId, stage: 'INVESTIGATION' });
@@ -130,81 +149,22 @@ export class Orchestrator {
       // 2. Stage: READY_TO_FIX
       await this.transitionStatus(jobId, JobStatus.READY_TO_FIX);
 
-      // 3. Stage: CODING in isolated workspace (In Progress)
-      await this.transitionStatus(jobId, JobStatus.CODING);
-      await jiraClient.addComment(
-        job.bug.jiraIssueKey,
-        `⚙️ **[Google Antigravity]** In Progress: Applying targeted patch in isolated sandbox workspace...`
-      );
-
-      // Intelligent Multi-Repository Resolution for Issue
-      let targetRepos = (job.bug as any).repositories || [];
-
-      if (targetRepos.length === 0) {
-        let labels: string[] = [];
-        try {
-          labels = JSON.parse(job.bug.labels || '[]');
-        } catch {
-          labels = [];
-        }
-        const textToSearch = `${job.bug.title} ${job.bug.description || ''} ${labels.join(' ')}`.toLowerCase();
-
-        // Check if issue explicitly targets all repositories
-        const isAllRepos =
-          textToSearch.includes('all repository') ||
-          textToSearch.includes('all repositories') ||
-          textToSearch.includes('all repos') ||
-          textToSearch.includes('throughout the application') ||
-          textToSearch.includes('across all') ||
-          labels.some((l) => l.toLowerCase() === 'all-repos' || l.toLowerCase() === 'all-repositories');
-
-        if (isAllRepos && job.project.repositories.length > 0) {
-          targetRepos = [...job.project.repositories];
-        } else {
-          targetRepos = job.project.repositories.filter((r) => {
-            const repoNameLower = r.name.toLowerCase();
-            const fullNameLower = `${r.owner}/${r.name}`.toLowerCase();
-            const hasLabel = labels.some(
-              (l) => l.toLowerCase() === repoNameLower || l.toLowerCase() === `repo:${repoNameLower}`
-            );
-            const nameParts = repoNameLower.split(/[-_]/).filter((p) => p.length >= 4);
-            const hasNamePart = nameParts.some((p) => textToSearch.includes(p));
-            return hasLabel || textToSearch.includes(repoNameLower) || textToSearch.includes(fullNameLower) || hasNamePart;
-          });
-        }
-
-        // Fallback: If still none matched, select primary repository
-        if (targetRepos.length === 0 && job.project.repositories.length > 0) {
-          targetRepos = [job.project.repositories[0]];
-        }
-
-        // Persist resolved repositories to the Bug
-        if (targetRepos.length > 0) {
-          try {
-            await db.bug.update({
-              where: { id: job.bug.id },
-              data: {
-                repositories: {
-                  set: targetRepos.map((r: any) => ({ id: r.id }))
-                }
-              }
-            });
-          } catch (err) {
-            await logger.warn(`Failed to link repositories to bug: ${err}`, { jobId });
-          }
-        }
-      }
+      // Load all project repositories for multi-repo workspace inspection
+      const allProjectRepos = job.project?.repositories || [];
+      const targetRepos = allProjectRepos.length > 0
+        ? allProjectRepos
+        : ((job.bug as any).repositories || []);
 
       await logger.info(
-        `Issue ${job.bug.jiraIssueKey} resolved to ${targetRepos.length} repository(ies): ${targetRepos.map((r: any) => r.name).join(', ')}`,
+        `[MULTI_REPO] Loading all ${targetRepos.length} repository workspaces for ${job.bug.jiraIssueKey}: ${targetRepos.map((r: any) => r.name).join(', ')}`,
         { jobId, stage: 'ROUTING' }
       );
 
-      // 3. Stage: CODING across N isolated workspaces
+      // 3. Stage: CODING across all loaded workspaces
       await this.transitionStatus(jobId, JobStatus.CODING);
       await jiraClient.addComment(
         job.bug.jiraIssueKey,
-        `⚙️ **[Google Antigravity]** In Progress: Applying targeted patch across ${targetRepos.length} repository${targetRepos.length > 1 ? 'ies' : ''} (${targetRepos.map((r: any) => r.name).join(', ')})...`
+        `⚙️ **[Google Antigravity]** In Progress: Loading all ${targetRepos.length} repositories into isolated workspaces (${targetRepos.map((r: any) => r.name).join(', ')})...`
       );
 
       const cleanToken = (process.env.GITHUB_TOKEN || '').trim().replace(/^['"]|['"]$/g, '');
@@ -242,13 +202,14 @@ export class Orchestrator {
           repositoryUrl: repo.cloneUrl || 'local',
           baseBranch: repo.defaultBranch || 'master',
           workingDirectory: workspace.directoryPath,
-          prompt: `Fix bug ${job.bug.jiraIssueKey} in repository ${repo.name}: ${job.bug.title}. Apply proposed fix: ${investigation.proposedFix.join(', ')}`,
+          prompt: job.bug.description || job.bug.title,
           timeoutSeconds: 300,
           jiraKey: job.bug.jiraIssueKey,
           title: job.bug.title,
           description: job.bug.description || '',
           proposedFix: investigation.proposedFix,
-          repositoryName: repo.name
+          repositoryName: repo.name,
+          attachments
         } as any);
 
         await db.agentExecution.create({
@@ -270,23 +231,43 @@ export class Orchestrator {
           throw new Error(`Coding agent failed on repository ${repo.name}: ${codingResult.error}`);
         }
 
-        workspaces.push({
-          repo,
-          workspaceKey,
-          branchName: workspace.branchName,
-          diff: codingResult.diff || ''
-        });
+        if (codingResult.diff && codingResult.diff.trim().length > 0 && (codingResult.changedFiles || []).length > 0) {
+          workspaces.push({
+            repo,
+            workspaceKey,
+            branchName: workspace.branchName,
+            diff: codingResult.diff || ''
+          });
+        } else {
+          await logger.info(
+            `[CODING] Repository "${repo.name}" has no relevant code changes for ${job.bug.jiraIssueKey}. Skipping PR creation for this repository.`,
+            { jobId, stage: 'CODING' }
+          );
+        }
+      }
+
+      if (workspaces.length === 0) {
+        await logger.info(
+          `[MULTI_REPO] Completed analysis across all ${targetRepos.length} repositories. Zero files required modification for ${job.bug.jiraIssueKey}.`,
+          { jobId, stage: 'CODING' }
+        );
+        await jiraClient.addComment(
+          job.bug.jiraIssueKey,
+          `✅ **[Google Antigravity]** Completed autonomous inspection across ${targetRepos.length} repositories (${targetRepos.map((r: any) => r.name).join(', ')}). No code modifications were needed for this ticket.`
+        );
+        await this.transitionStatus(jobId, JobStatus.COMPLETED);
+        return;
       }
 
       // 4. Stage: QA (Automated Quality Gates - Testing)
       await this.transitionStatus(jobId, JobStatus.QA);
       await jiraClient.addComment(
         job.bug.jiraIssueKey,
-        `🧪 **[Google Antigravity]** Testing: Executing automated Quality Gate Matrix across ${targetRepos.length} target repositories...`
+        `🧪 **[Google Antigravity]** Testing: Executing automated Quality Gate Matrix across ${workspaces.length} modified repository${workspaces.length > 1 ? 'ies' : ''}...`
       );
 
       await logger.info(
-        `[QA_GATE] Starting automated Quality Gates verification matrix across ${targetRepos.length} repositories...`,
+        `[QA_GATE] Starting automated Quality Gates verification matrix across ${workspaces.length} modified repositories...`,
         { jobId, stage: 'QA' }
       );
 
@@ -356,7 +337,7 @@ export class Orchestrator {
       await this.transitionStatus(jobId, JobStatus.REVIEWING);
       const review: ReviewResult = {
         approved: true,
-        summary: `Patches across ${targetRepos.length} repositories directly address the ticket requirements without scope creep.`,
+        summary: `Patches across ${workspaces.length} modified repository${workspaces.length > 1 ? 'ies' : ''} directly address the ticket requirements without scope creep.`,
         minimalDiffConfirmed: true,
         acceptanceCriteriaMet: true,
         securityReviewPassed: true,

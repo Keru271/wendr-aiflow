@@ -55,24 +55,8 @@ export async function autoSyncJiraIssues(): Promise<{
           project = defaultProject;
         }
 
-        // Determine target repositories
-        const searchScope = `${full.summary} ${full.description || ''} ${(full.labels || []).join(' ')}`.toLowerCase();
-        const isAll = searchScope.includes('all repo') || searchScope.includes('all repositories') || searchScope.includes('across all');
-        
-        let targetRepoIds: string[] = [];
-        if (isAll) {
-          targetRepoIds = project.repositories.map((r) => r.id);
-        } else {
-          const matched = project.repositories.filter((r) =>
-            searchScope.includes(r.name.toLowerCase()) || searchScope.includes(r.name.toLowerCase().replace(/[-_]/g, ' '))
-          );
-          if (matched.length > 0) {
-            targetRepoIds = matched.map((r) => r.id);
-          } else {
-            // Default to all repositories in project
-            targetRepoIds = project.repositories.map((r) => r.id);
-          }
-        }
+        // Load all project repositories for multi-repo workspace inspection
+        const targetRepoIds: string[] = (project.repositories || []).map((r) => r.id);
 
         const bug = await db.bug.create({
           data: {
@@ -84,6 +68,10 @@ export async function autoSyncJiraIssues(): Promise<{
             status: full.status || 'Open',
             priority: full.priority || 'Medium',
             labels: JSON.stringify(full.labels || []),
+            sourcePayload: JSON.stringify({
+              attachments: full.attachments,
+              rawDescription: full.rawDescription
+            }),
             repositories: {
               connect: targetRepoIds.map((id) => ({ id }))
             }
