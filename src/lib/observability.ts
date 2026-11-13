@@ -35,7 +35,13 @@ export class Logger {
   }
 
   private async persist(level: string, message: string, context?: LogContext) {
-    const jobId = context?.jobId || this.defaultContext.jobId;
+    let jobId = context?.jobId || this.defaultContext.jobId;
+    if (jobId && jobId.includes('_')) {
+      const parts = jobId.split('_');
+      if (parts[0].length >= 20) {
+        jobId = parts[0];
+      }
+    }
     const stage = context?.stage || this.defaultContext.stage || 'GENERAL';
     if (!jobId) return;
 

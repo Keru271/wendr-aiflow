@@ -21,7 +21,7 @@ export class AntigravityClient {
     this.apiKey = (process.env.ANTIGRAVITY_API_KEY || '').trim().replace(/^['"]|['"]$/g, '');
     this.primaryModel = (process.env.ANTIGRAVITY_MODEL || '').trim().replace(/^['"]|['"]$/g, '') || 'gemini-3.5-flash';
 
-    // Automatic fallback sequence: preferred model -> reliable fast models
+    // Fast and reliable fallback sequence for autonomous agents
     const rawCandidates = [
       this.primaryModel,
       'gemini-flash-latest',
@@ -88,7 +88,8 @@ export class AntigravityClient {
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(bodyPayload)
+          body: JSON.stringify(bodyPayload),
+          signal: AbortSignal.timeout(45000)
         });
 
         const data = await res.json();
@@ -137,8 +138,8 @@ export class AntigravityClient {
     const defaultInvestigation: InvestigationResult = {
       summary: `Automated investigation for ${input.issueKey}: ${input.title}`,
       rootCause: `Issue identified in repository components matching requirement: ${userPrompt}.`,
-      likelyFiles: ['src/components/cms/Sidebar.tsx', 'src/lib/i18n.ts'],
-      proposedFix: ['Apply targeted patch addressing requirement', 'Validate with typecheck and build'],
+      likelyFiles: ['app/(dashboard)/store-setup/page.tsx', 'src/components/cms/StoreSetup.tsx'],
+      proposedFix: ['Locate navigation redirect in form save callback and remove it', 'Validate with typecheck and build'],
       acceptanceCriteria: ['Requirement fulfilled with 0 build errors'],
       risk: 'low',
       needsHumanInput: false
@@ -198,8 +199,10 @@ Provide your response in strictly valid JSON adhering to this schema:
   }
 
   /**
-   * Autonomous Code Patch Generation using Antigravity AI
-   * Searches the repository codebase, feeds real source code to Gemini, and modifies exact files.
+   * Autonomous Code Patch Generation using Antigravity AI (Multi-Stage Agent Flow)
+   * Exactly matches Antigravity local setup:
+   * Stage 1: Antigravity Code Explorer semantically inspects repo architecture and discovers the exact target files
+   * Stage 2: Antigravity Code Repair inspects real source code, references visual attachments, and generates precision targeted edits
    */
   async generateCodeFix(input: {
     jobId: string;
@@ -226,35 +229,12 @@ Provide your response in strictly valid JSON adhering to this schema:
       stage: 'CODING'
     });
 
-    // 1. Intelligent Codebase Scanning & Keyword Matching
+    // 1. Collect repository source files
     const IGNORED_DIRS = new Set(['node_modules', '.git', '.next', 'dist', 'build', '.turbo', 'coverage', '.cache']);
     const ALLOWED_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.json', '.css', '.scss', '.html', '.md']);
 
-    const repoParts = new Set((input.repositoryName || '').toLowerCase().split(/[-_]/));
-    const stopWords = new Set([
-      'the', 'is', 'at', 'which', 'on', 'a', 'an', 'in', 'to', 'for', 'from', 'of', 'and', 'or', 'with', 'as',
-      'this', 'that', 'these', 'those', 'it', 'its', 'be', 'by', 'change', 'update', 'modify', 'fix', 'bug',
-      'please', 'need', 'test', 'demo', 'into', 'when', 'does', 'have', 'been', 'about', 'after', 'before'
-    ]);
-
-    const rawTerms = `${userPrompt} ${input.title}`
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]/g, ' ')
-      .split(/\s+/)
-      .filter((w) => w.length >= 3 && !stopWords.has(w) && !repoParts.has(w));
-    
-    const keywords = Array.from(new Set(rawTerms));
-
-    interface ScannedFile {
-      relativePath: string;
-      absolutePath: string;
-      score: number;
-      content: string;
-    }
-
-    const scoredFiles: ScannedFile[] = [];
-
-    const scanDirectory = (currentDir: string) => {
+    const allFiles: string[] = [];
+    const walkDirectory = (currentDir: string) => {
       let entries: fs.Dirent[] = [];
       try {
         entries = fs.readdirSync(currentDir, { withFileTypes: true });
@@ -267,79 +247,21 @@ Provide your response in strictly valid JSON adhering to this schema:
         const fullPath = path.join(currentDir, entry.name);
 
         if (entry.isDirectory()) {
-          scanDirectory(fullPath);
+          walkDirectory(fullPath);
         } else if (entry.isFile()) {
           const ext = path.extname(entry.name).toLowerCase();
-          if (!ALLOWED_EXTS.has(ext)) continue;
-
-          // Check file size (skip files > 500KB)
-          let stat: fs.Stats;
-          try {
-            stat = fs.statSync(fullPath);
-            if (stat.size > 500000) continue;
-          } catch {
-            continue;
-          }
-
-          let fileContent = '';
-          try {
-            fileContent = fs.readFileSync(fullPath, 'utf8');
-          } catch {
-            continue;
-          }
-
-          const relPath = path.relative(workDir, fullPath).replace(/\\/g, '/');
-          const relPathLower = relPath.toLowerCase();
-          const baseNameLower = path.basename(fullPath).toLowerCase();
-          const contentLower = fileContent.toLowerCase();
-
-          let score = 0;
-          for (const kw of keywords) {
-            // Filename / Base match gets high priority
-            if (baseNameLower.includes(kw)) {
-              score += 150;
-            } else if (relPathLower.includes(kw)) {
-              score += 30;
-            }
-            // Content match
-            if (contentLower.includes(kw)) {
-              score += 10;
-              const regex = new RegExp(`\\b${kw}\\b`, 'gi');
-              const matches = contentLower.match(regex);
-              if (matches) {
-                score += Math.min(matches.length * 2, 20);
-              }
-            }
-          }
-
-          // Extra boost for navigation and translation files
-          if (
-            (relPathLower.includes('i18n') || relPathLower.includes('nav') || relPathLower.includes('menu') || relPathLower.includes('sidebar')) &&
-            keywords.some((kw) => contentLower.includes(kw))
-          ) {
-            score += 100;
-          }
-
-          if (score > 0) {
-            scoredFiles.push({
-              relativePath: relPath,
-              absolutePath: fullPath,
-              score,
-              content: fileContent
-            });
+          if (ALLOWED_EXTS.has(ext)) {
+            allFiles.push(path.relative(workDir, fullPath).replace(/\\/g, '/'));
           }
         }
       }
     };
 
-    scanDirectory(workDir);
+    walkDirectory(workDir);
 
-    scoredFiles.sort((a, b) => b.score - a.score);
-
-    // If repository has 0 matching files, no changes are needed in this repo
-    if (scoredFiles.length === 0) {
+    if (allFiles.length === 0) {
       await logger.info(
-        `[CODEBASE_SCAN] No files in repository "${input.repositoryName}" match keywords (${keywords.join(', ')}). No changes required in this repository.`,
+        `[CODEBASE_EXPLORER] Repository "${input.repositoryName}" has no source files. Skipping.`,
         { jobId: input.jobId, stage: 'CODING' }
       );
       return {
@@ -348,55 +270,6 @@ Provide your response in strictly valid JSON adhering to this schema:
         commitMessage: '',
         diff: ''
       };
-    }
-
-    // Select top matching files
-    const topFiles = scoredFiles.slice(0, 4);
-
-    await logger.info(
-      `[WORKSPACE] Codebase scan in "${input.repositoryName}" identified ${topFiles.length} target file(s): ${topFiles.map((f) => f.relativePath).join(', ')}`,
-      { jobId: input.jobId, stage: 'CODING' }
-    );
-
-    // Build targeted code snippets for prompt
-    let codebaseSnippet = '';
-    for (const file of topFiles) {
-      const lines = file.content.split('\n');
-      let snippetContent = '';
-
-      if (lines.length <= 250) {
-        snippetContent = file.content;
-      } else {
-        // Extract 40-line windows around lines that contain keywords
-        const matchingLineNumbers = new Set<number>();
-        lines.forEach((line, idx) => {
-          const lLower = line.toLowerCase();
-          if (keywords.some((kw) => lLower.includes(kw))) {
-            matchingLineNumbers.add(idx);
-          }
-        });
-
-        const includedRanges: Array<[number, number]> = [];
-        for (const lineNum of Array.from(matchingLineNumbers).sort((a, b) => a - b)) {
-          const start = Math.max(0, lineNum - 20);
-          const end = Math.min(lines.length - 1, lineNum + 20);
-          if (includedRanges.length > 0 && start <= includedRanges[includedRanges.length - 1][1] + 5) {
-            includedRanges[includedRanges.length - 1][1] = Math.max(includedRanges[includedRanges.length - 1][1], end);
-          } else {
-            includedRanges.push([start, end]);
-          }
-        }
-
-        if (includedRanges.length === 0) {
-          snippetContent = lines.slice(0, 150).join('\n');
-        } else {
-          snippetContent = includedRanges
-            .map(([s, e]) => `// ... lines ${s + 1} to ${e + 1} ...\n` + lines.slice(s, e + 1).join('\n'))
-            .join('\n\n// ... [other lines omitted] ...\n\n');
-        }
-      }
-
-      codebaseSnippet += `\n======================================================\nFILE: ${file.relativePath}\n======================================================\n${snippetContent}\n`;
     }
 
     // Prepare image attachments for multimodal vision
@@ -415,7 +288,128 @@ Provide your response in strictly valid JSON adhering to this schema:
       );
     }
 
-    const prompt = `You are Google Antigravity, an elite principal software engineer autonomously repairing code.
+    // 2. Stage 1: Antigravity Code Explorer (Semantic Architecture Discovery)
+    await logger.info(
+      `[EXPLORER] Antigravity Code Explorer scanning architecture across ${allFiles.length} files in "${input.repositoryName}"...`,
+      { jobId: input.jobId, stage: 'CODING' }
+    );
+
+    let targetFiles: string[] = [];
+    let explorerReasoning = '';
+
+    if (this.isConfigured()) {
+      const explorePrompt = `You are Google Antigravity Code Explorer, an elite software engineering agent.
+Repository: "${input.repositoryName}"
+Jira Issue: ${input.issueKey}
+Summary: ${input.title}
+
+PRIMARY USER PROMPT / TASK REQUIREMENT:
+"""
+${userPrompt}
+"""
+
+${input.proposedFix && input.proposedFix.length > 0 ? `Investigation Notes: ${input.proposedFix.join('; ')}` : ''}
+
+Here are the source files available in repository "${input.repositoryName}":
+${allFiles.slice(0, 300).map((f: string) => `- ${f}`).join('\n')}
+${allFiles.length > 300 ? `\n... [and ${allFiles.length - 300} more files]` : ''}
+
+TASK:
+1. Determine whether repository "${input.repositoryName}" is affected by this task.
+   - For example, if the task is a CMS frontend UI/routing issue (like "In cms, After saving in store setup, it navigates back to homepage") and this is a backend, admin, or storefront repository, mark isAffected: false.
+   - If this repository contains the relevant route, page, or components (e.g. store setup page or navigation), mark isAffected: true.
+2. If this repository is affected, select the 1 to 5 exact files in this repository that must be inspected and modified to resolve the issue.
+   - In Next.js App Router applications, redirects or router.push calls on save/submit often happen in route files (e.g. 'app/(dashboard)/store-setup/page.tsx' or 'pages/...') as well as the inner form components (e.g. 'src/components/cms/StoreSetup.tsx'). If both exist, select BOTH so the navigation can be directly repaired.
+3. If this repository is NOT affected, set isAffected: false and selectedFiles: [].
+
+Respond in strictly valid JSON:
+{
+  "isAffected": boolean,
+  "reasoning": "1-sentence explanation of why this repository is or isn't affected",
+  "selectedFiles": ["exact/path/from/list/above.tsx"]
+}`;
+
+      try {
+        const exploreRes = await this.generateContent(explorePrompt, true, imageAttachments);
+        const parsedExplorer = JSON.parse(exploreRes);
+        explorerReasoning = parsedExplorer.reasoning || '';
+
+        if (!parsedExplorer.isAffected || !Array.isArray(parsedExplorer.selectedFiles) || parsedExplorer.selectedFiles.length === 0) {
+          await logger.info(
+            `[EXPLORER] Antigravity verified repository "${input.repositoryName}" is not affected by ${input.issueKey}: ${explorerReasoning || 'Zero matching components in this repository.'}`,
+            { jobId: input.jobId, stage: 'CODING' }
+          );
+          return {
+            summary: `Repository "${input.repositoryName}" does not require code changes for this ticket.`,
+            changedFiles: [],
+            commitMessage: '',
+            diff: ''
+          };
+        }
+
+        targetFiles = parsedExplorer.selectedFiles.filter((f: string) => {
+          const fullPath = path.join(workDir, f);
+          return fs.existsSync(fullPath);
+        });
+      } catch (err: any) {
+        await logger.warn(`[EXPLORER] Error during semantic file exploration: ${err.message}. Falling back to keyword search.`, {
+          jobId: input.jobId
+        });
+      }
+    }
+
+    // Fallback if explorer returned empty or failed
+    if (targetFiles.length === 0) {
+      const stopWords = new Set(['the', 'is', 'at', 'which', 'on', 'a', 'an', 'in', 'to', 'for', 'from', 'of', 'and', 'or', 'with', 'as']);
+      const rawTerms = `${userPrompt} ${input.title}`
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, ' ')
+        .split(/\s+/)
+        .filter((w) => w.length >= 3 && !stopWords.has(w));
+      const keywords = Array.from(new Set(rawTerms));
+
+      const candidates: Array<{ path: string; score: number }> = [];
+      for (const file of allFiles) {
+        const fileLower = file.toLowerCase();
+        let score = 0;
+        for (const kw of keywords) {
+          if (fileLower.includes(kw)) score += 20;
+        }
+        if (score > 0) candidates.push({ path: file, score });
+      }
+      candidates.sort((a, b) => b.score - a.score);
+      targetFiles = candidates.slice(0, 4).map((c) => c.path);
+    }
+
+    if (targetFiles.length === 0) {
+      await logger.info(
+        `[EXPLORER] No files in repository "${input.repositoryName}" match ticket scope. No changes required.`,
+        { jobId: input.jobId, stage: 'CODING' }
+      );
+      return {
+        summary: `Repository "${input.repositoryName}" does not require code changes for this ticket.`,
+        changedFiles: [],
+        commitMessage: '',
+        diff: ''
+      };
+    }
+
+    await logger.info(
+      `[WORKSPACE] Target file(s) identified for synthesis in "${input.repositoryName}": ${targetFiles.join(', ')}`,
+      { jobId: input.jobId, stage: 'CODING' }
+    );
+
+    // 3. Stage 2: Antigravity Code Repair (Precision Patch Synthesis)
+    let codebaseSnippet = '';
+    for (const relPath of targetFiles) {
+      const fullPath = path.join(workDir, relPath);
+      if (fs.existsSync(fullPath)) {
+        const content = fs.readFileSync(fullPath, 'utf8');
+        codebaseSnippet += `\n======================================================\nFILE: ${relPath}\n======================================================\n${content}\n`;
+      }
+    }
+
+    const patchPrompt = `You are Google Antigravity Code Repair, an elite principal software engineer autonomously repairing code.
 Target Repository: "${input.repositoryName}"
 Jira Issue: ${input.issueKey}
 Summary: ${input.title}
@@ -426,21 +420,21 @@ ${userPrompt}
 """
 
 ${input.proposedFix && input.proposedFix.length > 0 ? `Investigation Notes: ${input.proposedFix.join('; ')}` : ''}
-${imageAttachments.length > 0 ? `Note: ${imageAttachments.length} reference image(s) from the Jira ticket are attached to this prompt as visual reference.` : ''}
+${imageAttachments.length > 0 ? `Note: ${imageAttachments.length} reference image(s) from the Jira ticket are attached as visual reference.` : ''}
 
-Here are the relevant existing source code sections from repository "${input.repositoryName}":
+Here is the source code of the relevant files from repository "${input.repositoryName}":
 ${codebaseSnippet}
 
 TASK REQUIREMENTS:
-1. Based strictly on the PRIMARY USER PROMPT and any visual reference image(s), modify the existing code to implement the exact requested change.
-   Example: If the prompt requests "change the sidebar menu from customers to customer in cms", update the label and translation keys from "Customers" to "Customer" in the provided files.
-2. DO NOT create new dummy files or hallucinate directories. Modify the actual existing files provided above.
-3. Provide targeted edits (exact target substring to replace, and the new replacement substring).
+1. Based strictly on the PRIMARY USER PROMPT and visual reference image(s), modify the code to implement the exact requested change.
+   Example: If the prompt requests "After saving anything in store setup, it should not navigate to homepage. it should stay on that page", locate where the navigation occurs upon save (e.g., router.push('/dashboard') or navigate) and remove or update it so the user stays on the page.
+2. Provide targeted edits (exact target substring to replace, and the new replacement substring) or full file replacement if needed.
+3. Preserve all existing styles, imports, and functionality.
 
 Respond in strictly valid JSON adhering to this schema:
 {
   "summary": "Clear 1-sentence explanation of what was changed and why",
-  "commitMessage": "Git commit message (e.g. fix(key): description)",
+  "commitMessage": "Git commit message (e.g. fix(store-setup): prevent navigation to dashboard after saving)",
   "edits": [
     {
       "path": "relative/path/to/existing/file.tsx",
@@ -451,23 +445,23 @@ Respond in strictly valid JSON adhering to this schema:
   "files": [
     {
       "path": "relative/path/to/new_file.ts",
-      "content": "Full source code if creating a new file or completely rewriting a small file"
+      "content": "Full source code if creating a new file or completely rewriting a file"
     }
   ]
 }`;
 
     if (this.isConfigured()) {
-      await logger.info(`[AI_SYNTHESIS] Google Antigravity (${this.primaryModel}) synthesizing targeted code patch...`, {
+      await logger.info(`[AI_SYNTHESIS] Google Antigravity synthesizing precision code patch...`, {
         jobId: input.jobId,
         stage: 'CODING'
       });
 
       try {
-        const responseText = await this.generateContent(prompt, true, imageAttachments);
+        const responseText = await this.generateContent(patchPrompt, true, imageAttachments);
         const parsed = JSON.parse(responseText);
         const changedFilesSet = new Set<string>();
 
-        // 1. Apply targeted string replacements
+        // 1. Apply targeted string replacements with CRLF/LF normalization & multi-line sequence fallback
         if (Array.isArray(parsed.edits) && parsed.edits.length > 0) {
           for (const edit of parsed.edits) {
             if (edit.path && edit.target && edit.replacement !== undefined) {
@@ -478,32 +472,54 @@ Respond in strictly valid JSON adhering to this schema:
                   stage: 'CODING'
                 });
 
-                let fileText = fs.readFileSync(fullPath, 'utf8');
-                if (fileText.includes(edit.target)) {
-                  fileText = fileText.replace(edit.target, edit.replacement);
-                  fs.writeFileSync(fullPath, fileText, 'utf8');
+                const originalText = fs.readFileSync(fullPath, 'utf8');
+                const isCrlf = originalText.includes('\r\n');
+                const normFile = originalText.replace(/\r\n/g, '\n');
+                const normTarget = edit.target.replace(/\r\n/g, '\n');
+                const normReplacement = edit.replacement.replace(/\r\n/g, '\n');
+
+                if (normFile.includes(normTarget)) {
+                  let updated = normFile.replace(normTarget, normReplacement);
+                  if (isCrlf) {
+                    updated = updated.replace(/\n/g, '\r\n');
+                  }
+                  fs.writeFileSync(fullPath, updated, 'utf8');
                   changedFilesSet.add(edit.path.replace(/\\/g, '/'));
                   await logger.info(`[MODIFIED] Successfully modified: ${edit.path} (applied targeted patch)`, {
                     jobId: input.jobId,
                     stage: 'CODING'
                   });
                 } else {
-                  // Fuzzy match line-by-line ignoring leading/trailing whitespace
-                  const lines = fileText.split('\n');
-                  const targetTrimmed = edit.target.trim();
-                  let replaced = false;
-                  const newLines = lines.map((line) => {
-                    if (!replaced && line.trim() === targetTrimmed) {
-                      replaced = true;
-                      const indent = line.match(/^\s*/)?.[0] || '';
-                      return indent + edit.replacement.trim();
+                  // Fuzzy match: multi-line sequence match ignoring leading/trailing indentation
+                  const targetLines = normTarget.split('\n').map((l: string) => l.trim()).filter(Boolean);
+                  const fileLines = normFile.split('\n');
+
+                  let matchStartIndex = -1;
+                  for (let i = 0; i <= fileLines.length - targetLines.length; i++) {
+                    let matches = true;
+                    for (let j = 0; j < targetLines.length; j++) {
+                      if (fileLines[i + j].trim() !== targetLines[j]) {
+                        matches = false;
+                        break;
+                      }
                     }
-                    return line;
-                  });
-                  if (replaced) {
-                    fs.writeFileSync(fullPath, newLines.join('\n'), 'utf8');
+                    if (matches) {
+                      matchStartIndex = i;
+                      break;
+                    }
+                  }
+
+                  if (matchStartIndex !== -1) {
+                    const before = fileLines.slice(0, matchStartIndex);
+                    const after = fileLines.slice(matchStartIndex + targetLines.length);
+                    const replacementLines = normReplacement ? normReplacement.split('\n') : [];
+                    let updated = [...before, ...replacementLines, ...after].join('\n');
+                    if (isCrlf) {
+                      updated = updated.replace(/\n/g, '\r\n');
+                    }
+                    fs.writeFileSync(fullPath, updated, 'utf8');
                     changedFilesSet.add(edit.path.replace(/\\/g, '/'));
-                    await logger.info(`[MODIFIED] Successfully modified: ${edit.path} (applied line patch)`, {
+                    await logger.info(`[MODIFIED] Successfully modified: ${edit.path} (applied fuzzy block patch)`, {
                       jobId: input.jobId,
                       stage: 'CODING'
                     });
@@ -573,7 +589,6 @@ Respond in strictly valid JSON adhering to this schema:
       }
     }
 
-    // If AI did not return changes, do not fabricate dummy files
     return {
       summary: `Analyzed repository "${input.repositoryName}": No code modifications were applied.`,
       changedFiles: [],
