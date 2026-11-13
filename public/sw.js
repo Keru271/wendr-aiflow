@@ -103,3 +103,80 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+// 4. Web Push Notifications Event Handler
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { body: event.data ? event.data.text() : 'Task completed' };
+  }
+
+  const title = data.title || 'FixPilot • Task Completed';
+  const options = {
+    body: data.body || 'Google Antigravity has completed the task and passed automated QA.',
+    icon: data.icon || '/icons/icon-192x192.png',
+    badge: '/icons/icon.svg',
+    vibrate: [200, 100, 200, 100, 200],
+    tag: data.tag || 'task-notification',
+    renotify: true,
+    data: {
+      url: data.url || '/',
+      jobId: data.jobId
+    },
+    actions: [
+      { action: 'view', title: '🔍 View Task' },
+      { action: 'dismiss', title: 'Dismiss' }
+    ]
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// 5. Notification Click Handler - Navigate to Task Detail URL
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  if (event.action === 'dismiss') {
+    return;
+  }
+
+  const targetUrl = event.notification.data?.url || '/';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Focus existing tab if open
+      for (const client of windowClients) {
+        if (client.url.includes(targetUrl) && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Or open a new window
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
+  );
+});
+
+// 6. Direct Message Notification Handler (from Client Window)
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SHOW_TASK_NOTIFICATION') {
+    const { title, body, url, jobId, tag } = event.data;
+    self.registration.showNotification(title || 'FixPilot • Task Completed', {
+      body: body || 'Google Antigravity has finished resolving the task.',
+      icon: '/icons/icon-192x192.png',
+      badge: '/icons/icon.svg',
+      vibrate: [200, 100, 200, 100, 200],
+      tag: tag || `task-${jobId || 'done'}`,
+      renotify: true,
+      data: { url: url || '/', jobId },
+      actions: [
+        { action: 'view', title: '🔍 View Task' },
+        { action: 'dismiss', title: 'Dismiss' }
+      ]
+    });
+  }
+});
+
+

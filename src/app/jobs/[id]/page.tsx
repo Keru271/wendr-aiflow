@@ -2,10 +2,11 @@
 
 export const dynamic = 'force-dynamic';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import AntigravityLiveTerminal from '@/components/AntigravityLiveTerminal';
+import { sendTaskNotification } from '@/lib/notifications';
 import { 
   Bot, 
   ArrowLeft, 
@@ -42,6 +43,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [rollingBack, setRollingBack] = useState(false);
   const [approvalComment, setApprovalComment] = useState('Production deployment verified by release lead.');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const previousStatusRef = useRef<string | null>(null);
 
   const handleRetryJob = async () => {
     setRetrying(true);
@@ -101,7 +103,29 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     try {
       const res = await fetch(`/api/jobs/${params.id}`);
       const data = await res.json();
-      if (res.ok) {
+      if (res.ok && data.job) {
+        const prev = previousStatusRef.current;
+        const current = data.job.status;
+
+        // Fire push notification when task finishes or reaches human gate
+        if (
+          prev &&
+          prev !== current &&
+          ['QUEUED', 'INVESTIGATING', 'READY_TO_FIX', 'CODING', 'QA', 'REVIEWING', 'DEPLOYING_STAGING'].includes(prev) &&
+          ['AWAITING_PRODUCTION_APPROVAL', 'COMPLETED', 'FAILED'].includes(current)
+        ) {
+          sendTaskNotification({
+            jobId: data.job.id,
+            jiraKey: data.job.bug?.jiraIssueKey,
+            title: data.job.bug?.title || 'Bug Fix Task',
+            status: current,
+            prNumber: data.job.pullRequest?.number || data.job.pullRequests?.[0]?.number,
+            prUrl: data.job.pullRequest?.url || data.job.pullRequests?.[0]?.url,
+            failureReason: data.job.failureReason
+          });
+        }
+
+        previousStatusRef.current = current;
         setJob(data.job);
       }
     } catch (err) {
@@ -314,7 +338,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Back to Jobs</span>
           </Link>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
             <span className="font-mono text-lg font-bold text-blue-400">{job.bug?.jiraIssueKey || 'WEB-1024'}</span>
             <span className="text-slate-500">•</span>
             <h2 className="text-xl font-bold text-white">{job.bug?.title}</h2>
@@ -334,7 +358,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           {/* Retry Job button if job is failed or cancelled */}
           {['FAILED', 'CANCELLED'].includes(job.status) && (
             <button

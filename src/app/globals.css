@@ -30,6 +30,18 @@ body {
   background: #334155;
 }
 
+/* Mobile Safe Area Padding & Touch responsiveness */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 1rem);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0.5rem);
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
 /* Pulse glow effects */
 .glow-primary {
   box-shadow: 0 0 20px -5px rgba(59, 130, 246, 0.4);

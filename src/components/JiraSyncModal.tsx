@@ -135,28 +135,28 @@ export default function JiraSyncModal({ isOpen, onClose, onImportSuccess }: Jira
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="w-full max-w-3xl max-h-[90vh] flex flex-col rounded-2xl border border-slate-800 bg-[#0d1322] shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/60">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
-              <FolderKanban className="w-5 h-5" />
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-800 bg-slate-900/60">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+            <div className="p-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 shrink-0">
+              <FolderKanban className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <h3 className="text-sm font-bold text-white">Sync & Import Jira Issues</h3>
-              <p className="text-[11px] text-slate-400">
-                Direct integration with your Jira Cloud instance (<span className="font-mono text-slate-300">balakeerthi2710.atlassian.net</span>)
+            <div className="truncate">
+              <h3 className="text-sm font-bold text-white truncate">Sync & Import Jira Issues</h3>
+              <p className="text-[10px] sm:text-[11px] text-slate-400 truncate">
+                Direct integration with Jira Cloud (<span className="font-mono text-slate-300">balakeerthi2710.atlassian.net</span>)
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="p-6 overflow-y-auto space-y-4 text-xs">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs">
           {/* Quick Manual Import Bar */}
           <div className="flex items-center gap-2 p-3 rounded-xl bg-slate-900/90 border border-slate-800">
             <input

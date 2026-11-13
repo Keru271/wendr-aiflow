@@ -49,7 +49,8 @@ export default function AuditPage() {
       </div>
 
       <div className="rounded-xl border border-slate-800 bg-[#0d1322]/80 overflow-hidden">
-        <table className="w-full text-left text-xs">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs min-w-[650px] sm:min-w-0">
           <thead className="bg-slate-900/60 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
             <tr>
               <th className="py-3 px-5">Timestamp</th>
@@ -96,6 +97,7 @@ export default function AuditPage() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

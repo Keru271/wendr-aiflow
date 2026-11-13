@@ -91,32 +91,32 @@ export default function SettingsPage() {
         <h3 className="text-sm font-semibold text-white">Production Safety & Policy Configuration</h3>
         
         <div className="space-y-3 text-xs">
-          <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center justify-between">
+          <div className="p-3.5 rounded-lg bg-slate-900/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <div className="font-semibold text-white">Principle #1: Human-Controlled Production Gate</div>
               <div className="text-slate-400 text-[11px]">Require authorized Approver or Admin user click before production rollout.</div>
             </div>
-            <span className="px-2 py-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
+            <span className="px-2 py-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold self-start sm:self-auto">
               ENFORCED
             </span>
           </div>
 
-          <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center justify-between">
+          <div className="p-3.5 rounded-lg bg-slate-900/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <div className="font-semibold text-white">Isolated Disposable Sandboxes</div>
               <div className="text-slate-400 text-[11px]">Each job executes in a temporary, destroyed-on-completion workspace.</div>
             </div>
-            <span className="px-2 py-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
+            <span className="px-2 py-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold self-start sm:self-auto">
               ENFORCED
             </span>
           </div>
 
-          <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center justify-between">
+          <div className="p-3.5 rounded-lg bg-slate-900/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <div className="font-semibold text-white">Bounded Retries Limit</div>
               <div className="text-slate-400 text-[11px]">Maximum number of autonomous fix retries before human escalation.</div>
             </div>
-            <span className="font-mono text-white font-semibold bg-slate-800 px-2.5 py-1 rounded">
+            <span className="font-mono text-white font-semibold bg-slate-800 px-2.5 py-1 rounded self-start sm:self-auto">
               3 Retries Max
             </span>
           </div>
