@@ -31,15 +31,15 @@ export default function AntigravityLiveTerminal({ job, currentStage }: Antigravi
   const [activeTab, setActiveTab] = useState<'terminal' | 'files' | 'diff'>('terminal');
   const [isCopied, setIsCopied] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const logsEndRef = useRef<HTMLDivElement>(null);
+  const [autoScroll, setAutoScroll] = useState(false);
+  const terminalBodyRef = useRef<HTMLDivElement>(null);
 
   const isLive = ['QUEUED', 'INVESTIGATING', 'READY_TO_FIX', 'CODING', 'QA', 'REVIEWING', 'DEPLOYING_STAGING'].includes(job?.status);
 
-  // Auto-scroll to bottom of terminal
+  // Auto-scroll disabled by default; when toggled, safely scrolls only inner terminal container without moving the browser viewport
   useEffect(() => {
-    if (autoScroll && logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (autoScroll && terminalBodyRef.current) {
+      terminalBodyRef.current.scrollTop = terminalBodyRef.current.scrollHeight;
     }
   }, [job?.logs, job?.executions, job?.validations, autoScroll]);
 
@@ -385,9 +385,12 @@ export default function AntigravityLiveTerminal({ job, currentStage }: Antigravi
 
       {/* Tab 1: Terminal Console Body */}
       {activeTab === 'terminal' && (
-        <div className={`p-4 font-mono text-[11px] text-slate-300 bg-[#060911] overflow-y-auto ${
-          isExpanded ? 'flex-1' : 'max-h-[380px] min-h-[260px]'
-        } space-y-1.5 leading-relaxed`}>
+        <div 
+          ref={terminalBodyRef}
+          className={`p-4 font-mono text-[11px] text-slate-300 bg-[#060911] overflow-y-auto ${
+            isExpanded ? 'flex-1' : 'max-h-[380px] min-h-[260px]'
+          } space-y-1.5 leading-relaxed`}
+        >
           {/* Welcome ASCII Box */}
           <div className="text-slate-600 select-none pb-1">
             <div>┌────────────────────────────────────────────────────────────────────────┐</div>
@@ -461,8 +464,6 @@ export default function AntigravityLiveTerminal({ job, currentStage }: Antigravi
               <span className="inline-block w-2 h-4 bg-emerald-400 animate-pulse align-middle ml-0.5" />
             </div>
           )}
-
-          <div ref={logsEndRef} />
         </div>
       )}
 
