@@ -1,0 +1,184 @@
+# FixPilot Multi-Repo Manifest (repos.yaml)
+# Defines all repositories belonging to the multi-repo workspace architecture
+
+version: "1.0"
+defaultConfidenceThreshold: 0.8
+
+repositories:
+  - name: "CMS_FRONTEND"
+    purpose: "Content Management System administration portal and store configuration UI"
+    techStack: "Next.js 14, React, Tailwind CSS, TypeScript"
+    defaultBranch: "master"
+    cloneUrl: "https://github.com/Keru271/CMS_FRONTEND.git"
+    ownedRoutes:
+      - "/dashboard"
+      - "/store-setup"
+      - "/customers"
+      - "/orders"
+      - "/products"
+      - "/categories"
+      - "/reviews"
+      - "/billing"
+      - "/settings"
+    components:
+      - "StoreSetup"
+      - "Sidebar"
+      - "Navbar"
+      - "ProductList"
+      - "OrderTable"
+      - "CustomerManagement"
+      - "HomepageSectionsCustomizer"
+    keywords:
+      - "cms"
+      - "store setup"
+      - "store-setup"
+      - "store configuration"
+      - "admin dashboard"
+      - "cms frontend"
+      - "customers"
+      - "orders list"
+      - "products list"
+      - "categories"
+      - "navigation"
+      - "settings page"
+    owners:
+      - "@cms-team"
+
+  - name: "CMS_BACKEND"
+    purpose: "Central administrative and CMS REST API services"
+    techStack: "Node.js, Fastify, TypeScript, Prisma, PostgreSQL"
+    defaultBranch: "master"
+    cloneUrl: "https://github.com/Keru271/CMS_BACKEND.git"
+    ownedRoutes:
+      - "/api/cms/*"
+      - "/api/products/*"
+      - "/api/orders/*"
+      - "/api/stores/*"
+      - "/api/categories/*"
+    components:
+      - "Fastify Server"
+      - "ProductService"
+      - "StoreService"
+      - "OrderService"
+      - "Prisma Models"
+    keywords:
+      - "cms backend"
+      - "cms api"
+      - "fastify"
+      - "database"
+      - "rest api"
+      - "sql"
+      - "query"
+      - "endpoint"
+      - "backend server"
+    owners:
+      - "@backend-team"
+
+  - name: "STOREFRONT_FRONTEND"
+    purpose: "Customer-facing e-commerce storefront for browsing, product discovery, and checkout"
+    techStack: "Next.js, React, Tailwind CSS, TypeScript"
+    defaultBranch: "master"
+    cloneUrl: "https://github.com/Keru271/STOREFRONT_FRONTEND.git"
+    ownedRoutes:
+      - "/"
+      - "/cart"
+      - "/checkout"
+      - "/catalog"
+      - "/product/*"
+      - "/category/*"
+      - "/search"
+    components:
+      - "ProductCard"
+      - "CartDrawer"
+      - "CheckoutForm"
+      - "HeroBanner"
+      - "Navbar"
+      - "Footer"
+    keywords:
+      - "storefront"
+      - "shop"
+      - "cart"
+      - "checkout"
+      - "catalog"
+      - "product page"
+      - "buyer"
+      - "customer view"
+      - "shopping cart"
+    owners:
+      - "@storefront-team"
+
+  - name: "STOREFRONT_BACKEND"
+    purpose: "Customer storefront API for cart sessions, catalog search, and order placement"
+    techStack: "Node.js, Express/Fastify, TypeScript"
+    defaultBranch: "master"
+    cloneUrl: "https://github.com/Keru271/STOREFRONT_BACKEND.git"
+    ownedRoutes:
+      - "/api/storefront/*"
+      - "/api/cart/*"
+      - "/api/checkout/*"
+      - "/api/catalog/*"
+    components:
+      - "CartController"
+      - "CatalogService"
+      - "CheckoutService"
+    keywords:
+      - "storefront backend"
+      - "storefront api"
+      - "cart api"
+      - "checkout api"
+      - "catalog api"
+    owners:
+      - "@backend-team"
+
+  - name: "MASTER_ADMIN"
+    purpose: "Platform super-admin console for multi-tenant management, licenses, and global governance"
+    techStack: "Next.js, React, TypeScript"
+    defaultBranch: "master"
+    cloneUrl: "https://github.com/Keru271/MASTER_ADMIN.git"
+    ownedRoutes:
+      - "/admin/tenants"
+      - "/admin/users"
+      - "/admin/billing"
+      - "/admin/system"
+      - "/admin/stores"
+    components:
+      - "TenantManager"
+      - "UserManager"
+      - "LicenseManager"
+      - "AuditViewer"
+    keywords:
+      - "master admin"
+      - "super admin"
+      - "platform admin"
+      - "tenant"
+      - "tenants"
+      - "global settings"
+      - "multi-tenant"
+    owners:
+      - "@platform-team"
+
+  - name: "wendr_homepage"
+    purpose: "Public marketing landing page, product documentation, and release notes"
+    techStack: "HTML, Static / Next.js, CSS"
+    defaultBranch: "master"
+    cloneUrl: "https://github.com/Keru271/wendr_homepage.git"
+    ownedRoutes:
+      - "/"
+      - "/pricing"
+      - "/docs"
+      - "/features"
+      - "/blog"
+    components:
+      - "LandingHero"
+      - "PricingTable"
+      - "FeatureGrid"
+    keywords:
+      - "wendr homepage"
+      - "landing page"
+      - "marketing"
+      - "pricing page"
+      - "public site"
+      - "documentation"
+    owners:
+      - "@growth-team"
+

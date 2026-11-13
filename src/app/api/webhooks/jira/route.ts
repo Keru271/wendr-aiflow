@@ -37,9 +37,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: 'Ignored: No issue object in payload', receiptId: receipt.id });
     }
 
-    // Check opt-in label
+    // Check trigger criteria: label ai-fix (PRD F1) and issue type Bug
     const labels: string[] = issue.fields?.labels || [];
-    const hasOptIn = labels.some((l: string) => l.toLowerCase() === 'ai-fix-opt-in' || l.toLowerCase() === 'fixpilot');
+    const hasOptIn = labels.some((l: string) => {
+      const lower = l.toLowerCase().trim();
+      return lower === 'ai-fix' || lower === 'ai-fix-opt-in' || lower === 'fixpilot';
+    });
 
     // Resolve project and its repositories
     const projectKey = issue.key.split('-')[0];

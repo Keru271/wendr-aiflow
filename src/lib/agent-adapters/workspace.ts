@@ -17,9 +17,12 @@ export interface WorkspaceConfig {
 
 export class WorkspaceManager {
   private baseDir: string;
+  private cacheDir: string;
 
   constructor() {
     this.baseDir = path.join(process.cwd(), '.workspaces');
+    this.cacheDir = path.join(process.cwd(), '.base-clones');
+
     if (!fs.existsSync(this.baseDir)) {
       try {
         fs.mkdirSync(this.baseDir, { recursive: true });
@@ -28,10 +31,37 @@ export class WorkspaceManager {
         fs.mkdirSync(this.baseDir, { recursive: true });
       }
     }
+
+    if (!fs.existsSync(this.cacheDir)) {
+      try {
+        fs.mkdirSync(this.cacheDir, { recursive: true });
+      } catch {
+        // non-fatal
+      }
+    }
   }
 
   getWorkspacePath(jobId: string): string {
     return path.join(this.baseDir, jobId);
+  }
+
+  /**
+   * Reads repo conventions (AGENTS.md or .antigravity/rules.md) for local-parity AI prompt
+   */
+  getRepoConventions(workspaceDir: string): string | null {
+    const candidates = [
+      path.join(workspaceDir, 'AGENTS.md'),
+      path.join(workspaceDir, '.antigravity', 'rules.md'),
+      path.join(workspaceDir, 'CONTRIBUTING.md')
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        try {
+          return fs.readFileSync(p, 'utf8');
+        } catch {}
+      }
+    }
+    return null;
   }
 
   async createWorkspace(config: WorkspaceConfig): Promise<{
@@ -45,31 +75,81 @@ export class WorkspaceManager {
     if (fs.existsSync(dir)) {
       await this.destroyWorkspace(config.jobId);
     }
-    fs.mkdirSync(dir, { recursive: true });
 
     let cloned = false;
     const cleanToken = (config.githubToken || process.env.GITHUB_TOKEN || '').trim().replace(/^['"]|['"]$/g, '');
+    const baseBranch = config.baseBranch || 'master';
 
     if (config.repoCloneUrl) {
-      try {
-        let authedCloneUrl = config.repoCloneUrl;
-        if (cleanToken && authedCloneUrl.startsWith('https://github.com/')) {
-          authedCloneUrl = authedCloneUrl.replace('https://github.com/', `https://${cleanToken}@github.com/`);
-        }
-        const baseBranch = config.baseBranch || 'master';
-        const rootGit = simpleGit();
-        await rootGit.clone(authedCloneUrl, dir, ['--depth', '1', '--branch', baseBranch]);
-        cloned = true;
-        await logger.info(`Successfully cloned ${config.repoCloneUrl} on branch ${baseBranch} into ${dir}`, {
-          jobId: config.jobId,
-          stage: 'WORKSPACE'
-        });
-      } catch (cloneErr: any) {
-        await logger.warn(`Workspace git clone failed: ${cloneErr.message}. Falling back to clean git init.`, {
-          jobId: config.jobId,
-          stage: 'WORKSPACE'
-        });
+      let authedCloneUrl = config.repoCloneUrl;
+      if (cleanToken && authedCloneUrl.startsWith('https://github.com/')) {
+        authedCloneUrl = authedCloneUrl.replace('https://github.com/', `https://${cleanToken}@github.com/`);
       }
+
+      // Extract repository name
+      const repoNameMatch = config.repoCloneUrl.match(/\/([^/]+?)(?:\.git)?$/);
+      const repoName = repoNameMatch ? repoNameMatch[1] : 'repo';
+      const repoPersistentCloneDir = path.join(this.cacheDir, repoName);
+
+      try {
+        // PRD Section 4B & F17: Maintain persistent base clone cache for instant worktrees & warm cache
+        if (!fs.existsSync(repoPersistentCloneDir)) {
+          fs.mkdirSync(this.cacheDir, { recursive: true });
+          const rootGit = simpleGit();
+          await rootGit.clone(authedCloneUrl, repoPersistentCloneDir, ['--branch', baseBranch]);
+          await logger.info(`[WORKSPACE] Created persistent base clone cache for "${repoName}" at ${repoPersistentCloneDir}`, {
+            jobId: config.jobId,
+            stage: 'WORKSPACE'
+          });
+        } else {
+          // Warm cache: fetch latest changes from origin
+          const cacheGit = simpleGit(repoPersistentCloneDir);
+          await cacheGit.fetch('origin', baseBranch);
+          await logger.info(`[WORKSPACE] Warmed persistent clone cache for "${repoName}" via git fetch`, {
+            jobId: config.jobId,
+            stage: 'WORKSPACE'
+          });
+        }
+
+        // Create git worktree for isolated job execution
+        fs.mkdirSync(path.dirname(dir), { recursive: true });
+        const cacheGit = simpleGit(repoPersistentCloneDir);
+        try {
+          // Clean up any stale worktree reference
+          await cacheGit.raw(['worktree', 'prune']);
+        } catch {}
+
+        await cacheGit.raw(['worktree', 'add', '-B', branchName, dir, `origin/${baseBranch}`]);
+        cloned = true;
+        await logger.info(`[WORKSPACE] Created git worktree on branch "${branchName}" from persistent cache for "${repoName}"`, {
+          jobId: config.jobId,
+          stage: 'WORKSPACE'
+        });
+      } catch (worktreeErr: any) {
+        await logger.warn(`[WORKSPACE] Git worktree creation fallback (${worktreeErr.message}). Performing direct clone...`, {
+          jobId: config.jobId,
+          stage: 'WORKSPACE'
+        });
+
+        // Fallback: direct clone if worktree is unsupported in environment
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        try {
+          const rootGit = simpleGit();
+          await rootGit.clone(authedCloneUrl, dir, ['--depth', '1', '--branch', baseBranch]);
+          cloned = true;
+        } catch (cloneErr: any) {
+          await logger.warn(`Workspace direct git clone fallback failed: ${cloneErr.message}`, {
+            jobId: config.jobId,
+            stage: 'WORKSPACE'
+          });
+        }
+      }
+    }
+
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
     }
 
     const git = simpleGit(dir);

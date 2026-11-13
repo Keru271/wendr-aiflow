@@ -122,6 +122,52 @@ export class AntigravityClient {
   }
 
   /**
+   * Health check for Antigravity AI connectivity and authentication (PRD F18)
+   */
+  async checkHealth(): Promise<{
+    status: 'connected' | 'auth_expired' | 'quota_exceeded' | 'error';
+    primaryModel: string;
+    message: string;
+  }> {
+    try {
+      const pingRes = await this.generateContent('ping', false);
+      if (pingRes && pingRes.length > 0) {
+        return {
+          status: 'connected',
+          primaryModel: this.primaryModel,
+          message: 'Antigravity AI engine authenticated and responsive'
+        };
+      }
+      return {
+        status: 'error',
+        primaryModel: this.primaryModel,
+        message: 'Empty response received from Antigravity AI'
+      };
+    } catch (err: any) {
+      const msg = err.message || '';
+      if (msg.includes('quota') || msg.includes('429')) {
+        return {
+          status: 'quota_exceeded',
+          primaryModel: this.primaryModel,
+          message: msg
+        };
+      }
+      if (msg.includes('API key') || msg.includes('auth') || msg.includes('401') || msg.includes('403')) {
+        return {
+          status: 'auth_expired',
+          primaryModel: this.primaryModel,
+          message: msg
+        };
+      }
+      return {
+        status: 'error',
+        primaryModel: this.primaryModel,
+        message: msg
+      };
+    }
+  }
+
+  /**
    * Autonomous Bug Investigation using Antigravity AI
    */
   async investigateBug(input: {
@@ -213,6 +259,7 @@ Provide your response in strictly valid JSON adhering to this schema:
     workingDirectory: string;
     repositoryName: string;
     attachments?: AntigravityAttachment[];
+    conventions?: string;
   }): Promise<{
     summary: string;
     changedFiles: string[];
@@ -419,17 +466,19 @@ PRIMARY USER PROMPT / TASK REQUIREMENT:
 ${userPrompt}
 """
 
+${input.conventions ? `REPO CONVENTIONS & RULES (AGENTS.md):\n"""\n${input.conventions}\n"""\n` : ''}
 ${input.proposedFix && input.proposedFix.length > 0 ? `Investigation Notes: ${input.proposedFix.join('; ')}` : ''}
 ${imageAttachments.length > 0 ? `Note: ${imageAttachments.length} reference image(s) from the Jira ticket are attached as visual reference.` : ''}
 
 Here is the source code of the relevant files from repository "${input.repositoryName}":
 ${codebaseSnippet}
 
-TASK REQUIREMENTS:
+TASK REQUIREMENTS & GUARDRAILS (PRD Section 4 #6):
 1. Based strictly on the PRIMARY USER PROMPT and visual reference image(s), modify the code to implement the exact requested change.
-   Example: If the prompt requests "After saving anything in store setup, it should not navigate to homepage. it should stay on that page", locate where the navigation occurs upon save (e.g., router.push('/dashboard') or navigate) and remove or update it so the user stays on the page.
-2. Provide targeted edits (exact target substring to replace, and the new replacement substring) or full file replacement if needed.
-3. Preserve all existing styles, imports, and functionality.
+2. Follow minimal diff: do NOT modify unrelated code blocks, format unchanged files, or re-structure architecture.
+3. Preserve or add regression tests where applicable.
+4. Provide targeted edits (exact target substring to replace, and the new replacement substring) or full file replacement if needed.
+5. Preserve all existing styles, imports, and functionality.
 
 Respond in strictly valid JSON adhering to this schema:
 {

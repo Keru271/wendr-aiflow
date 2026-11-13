@@ -6,6 +6,8 @@ import { githubClient, CreatedPullRequest } from './github';
 import { getAgentAdapter, workspaceManager } from './agent-adapters';
 import { antigravityClient } from './antigravity-client';
 import { InvestigationResult, ReviewResult } from './schemas';
+import { EligibilityChecker } from './eligibility';
+import { repoRouter } from './repo-router';
 
 export class Orchestrator {
   /**
@@ -86,7 +88,74 @@ export class Orchestrator {
     }
 
     try {
-      // 1. Stage: INVESTIGATING (Picked by Antigravity)
+      // 1. Stage: ELIGIBILITY CHECK (PRD Section 4 #2, F7)
+      const labels: string[] = (() => {
+        try {
+          return JSON.parse(job.bug.labels || '[]');
+        } catch {
+          return [];
+        }
+      })();
+
+      const availableProjectRepos = job.project?.repositories || [];
+      const eligibility = EligibilityChecker.checkEligibility({
+        issueKey: job.bug.jiraIssueKey,
+        title: job.bug.title,
+        description: job.bug.description || '',
+        labels,
+        repositoriesCount: availableProjectRepos.length
+      });
+
+      if (!eligibility.isEligible) {
+        await this.transitionStatus(jobId, JobStatus.NEEDS_INFO, {
+          reason: eligibility.reason,
+          category: eligibility.category
+        });
+        await jiraClient.addComment(
+          job.bug.jiraIssueKey,
+          `🛑 **[FixPilot Triage]** Task is not eligible for autonomous AI resolution: ${eligibility.reason}\n\n*Action required: Please update the ticket or assign to a human engineer.*`
+        );
+        await logger.warn(`[ELIGIBILITY] Job ${jobId} halted: ${eligibility.reason}`, { jobId, stage: 'INTAKE' });
+        return;
+      }
+
+      // 2. Stage: REPO ROUTING (PRD Section 4A, F2, F12, F13, F14, F15)
+      await logger.info(`[ROUTING] Evaluating repository routing for ${job.bug.jiraIssueKey}...`, { jobId, stage: 'ROUTING' });
+      const routingDecision = await repoRouter.routeBug({
+        issueKey: job.bug.jiraIssueKey,
+        title: job.bug.title,
+        description: job.bug.description || '',
+        labels,
+        availableRepos: availableProjectRepos
+      });
+
+      if (routingDecision.requiresHumanInput) {
+        await this.transitionStatus(jobId, JobStatus.NEEDS_INFO, {
+          reason: routingDecision.reasoning,
+          confidence: routingDecision.confidence
+        });
+        const suggestionsText = (routingDecision.suggestions || [])
+          .map((s) => `- \`repo:${s.repoName}\`: ${s.reason}`)
+          .join('\n');
+        await jiraClient.addComment(
+          job.bug.jiraIssueKey,
+          `❓ **[FixPilot Repo Router]** Routing confidence is below threshold (${Math.round(routingDecision.confidence * 100)}%).\n\nTop candidate repositories:\n${suggestionsText}\n\n*Action required: Please add a \`repo:<name>\` label (e.g. \`repo:${routingDecision.suggestions?.[0]?.repoName}\`) to direct the autonomous fix.*`
+        );
+        await logger.warn(`[ROUTING] Ambiguous routing for ${job.bug.jiraIssueKey}. Awaiting human repo selection.`, { jobId, stage: 'ROUTING' });
+        return;
+      }
+
+      // Filter targetRepos to ONLY the repositories selected by the router!
+      const targetRepos = availableProjectRepos.filter((r: any) =>
+        routingDecision.selectedRepos.includes(r.name)
+      );
+
+      await jiraClient.addComment(
+        job.bug.jiraIssueKey,
+        `🗺️ **[FixPilot Repo Router]** Routing confirmed for repository${targetRepos.length > 1 ? 'ies' : ''}: **${targetRepos.map((r: any) => r.name).join(', ')}** (${Math.round(routingDecision.confidence * 100)}% confidence).\n*Analysis:* ${routingDecision.reasoning}`
+      );
+
+      // 3. Stage: INVESTIGATING (Picked by Antigravity)
       await this.transitionStatus(jobId, JobStatus.INVESTIGATING);
       await jiraClient.transitionStatus(job.bug.jiraIssueKey, 'In Progress');
       await jiraClient.addComment(
@@ -115,7 +184,7 @@ export class Orchestrator {
         } catch {}
       }
 
-      const targetRepoNames = (job.project?.repositories || []).map((r: any) => r.name);
+      const targetRepoNames = targetRepos.map((r: any) => r.name);
       const investigation: InvestigationResult = await antigravityClient.investigateBug({
         issueKey: job.bug.jiraIssueKey,
         title: job.bug.title,
@@ -146,25 +215,19 @@ export class Orchestrator {
 
       await jiraClient.postInvestigationReport(job.bug.jiraIssueKey, investigation);
 
-      // 2. Stage: READY_TO_FIX
+      // 4. Stage: READY_TO_FIX
       await this.transitionStatus(jobId, JobStatus.READY_TO_FIX);
 
-      // Load all project repositories for multi-repo workspace inspection
-      const allProjectRepos = job.project?.repositories || [];
-      const targetRepos = allProjectRepos.length > 0
-        ? allProjectRepos
-        : ((job.bug as any).repositories || []);
-
       await logger.info(
-        `[MULTI_REPO] Loading all ${targetRepos.length} repository workspaces for ${job.bug.jiraIssueKey}: ${targetRepos.map((r: any) => r.name).join(', ')}`,
+        `[ROUTING] Preparing workspaces for ${targetRepos.length} target repository${targetRepos.length > 1 ? 'ies' : ''} (${targetRepos.map((r: any) => r.name).join(', ')})...`,
         { jobId, stage: 'ROUTING' }
       );
 
-      // 3. Stage: CODING across all loaded workspaces
+      // 5. Stage: CODING across routed target workspaces
       await this.transitionStatus(jobId, JobStatus.CODING);
       await jiraClient.addComment(
         job.bug.jiraIssueKey,
-        `⚙️ **[Google Antigravity]** In Progress: Loading all ${targetRepos.length} repositories into isolated workspaces (${targetRepos.map((r: any) => r.name).join(', ')})...`
+        `⚙️ **[Google Antigravity]** In Progress: Initializing isolated workspace${targetRepos.length > 1 ? 's' : ''} for ${targetRepos.map((r: any) => r.name).join(', ')}...`
       );
 
       const cleanToken = (process.env.GITHUB_TOKEN || '').trim().replace(/^['"]|['"]$/g, '');
@@ -461,10 +524,12 @@ export class Orchestrator {
           jiraSummary: `${job.bug.title} [${repo.name}]`,
           rootCause: investigation.rootCause,
           qaEvidence: qaChecks.map((c) => ({ name: c.name, status: 'PASSED', command: c.command, summary: c.summary })),
-          diffSummary: diff
+          diffSummary: diff,
+          isDraft: true,
+          filesChanged: item.diff ? ['modified'] : []
         });
 
-        await logger.info(`[PR] Created GitHub Pull Request #${pr.number}: ${pr.url}`, { jobId, stage: 'PR' });
+        await logger.info(`[PR] Created GitHub Draft Pull Request #${pr.number}: ${pr.url}`, { jobId, stage: 'PR' });
 
         await db.pullRequest.upsert({
           where: {
@@ -493,9 +558,49 @@ export class Orchestrator {
           }
         });
 
-        createdPrs.push(pr);
-        await jiraClient.postPullRequestComment(job.bug.jiraIssueKey, pr);
+        createdPrs.push({ ...pr, repoName: repo.name, repoOwner: repo.owner } as any);
       }
+
+      // Multi-repo cross-linking across created PRs (PRD Section 4 #8, 4A #4, F14)
+      if (createdPrs.length > 1) {
+        for (const itemPr of createdPrs as any[]) {
+          const others = (createdPrs as any[]).filter((p) => p.number !== itemPr.number);
+          try {
+            await githubClient.updatePullRequestBody(
+              itemPr.repoOwner,
+              itemPr.repoName,
+              itemPr.number,
+              githubClient.generatePrBody({
+                repoOwner: itemPr.repoOwner,
+                repoName: itemPr.repoName,
+                title: itemPr.title,
+                branchName: itemPr.branchName,
+                baseBranch: 'master',
+                jiraKey: job.bug.jiraIssueKey,
+                jiraSummary: `${job.bug.title} [${itemPr.repoName}]`,
+                rootCause: investigation.rootCause,
+                qaEvidence: qaChecks.map((c) => ({ name: c.name, status: 'PASSED', command: c.command, summary: c.summary })),
+                crossLinkedPrs: others,
+                isDraft: true
+              })
+            );
+          } catch {}
+        }
+      }
+
+      // Sync back to tracker: move task to "In Review" & post cross-linked PR links (PRD Section 4 #9)
+      try {
+        await jiraClient.transitionStatus(job.bug.jiraIssueKey, 'In Review');
+      } catch {}
+
+      const prLinksList = (createdPrs as any[])
+        .map((p) => `- **${p.repoName || 'Repository'}**: [#${p.number}](${p.url})`)
+        .join('\n');
+
+      await jiraClient.addComment(
+        job.bug.jiraIssueKey,
+        `🤖 **[FixPilot] Draft Pull Request${createdPrs.length > 1 ? 's' : ''} Ready for Review**\n\n${prLinksList}\n\n- **Root Cause**: ${investigation.rootCause}\n- **Quality Gates**: All Passed (ESLint, TypeScript Typecheck, Unit Tests, Build)\n- **Next Steps**: Review the draft PRs. Reviewer comments mentioning "AI, address feedback" will automatically trigger a re-run on this branch.`
+      );
 
       // 8. Stage: READY_TO_DEPLOY -> DEPLOYING_STAGING -> VERIFYING_STAGING
       await this.transitionStatus(jobId, JobStatus.READY_TO_DEPLOY);

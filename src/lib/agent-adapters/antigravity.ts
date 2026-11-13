@@ -4,6 +4,7 @@ import { CodingAgentAdapter } from './types';
 import { AgentTaskInput, AgentTaskResult } from '../schemas';
 import { logger, recordUsage } from '../observability';
 import { antigravityClient } from '../antigravity-client';
+import { workspaceManager } from './workspace';
 import simpleGit from 'simple-git';
 
 export class GoogleAntigravityAdapter implements CodingAgentAdapter {
@@ -19,6 +20,7 @@ export class GoogleAntigravityAdapter implements CodingAgentAdapter {
     try {
       const workDir = input.workingDirectory;
       const customInput = input as any;
+      const conventions = workspaceManager.getRepoConventions(workDir) || undefined;
 
       // Autonomously generate code fix using Antigravity AI
       const codeFix = await antigravityClient.generateCodeFix({
@@ -29,7 +31,8 @@ export class GoogleAntigravityAdapter implements CodingAgentAdapter {
         proposedFix: customInput.proposedFix || [],
         workingDirectory: workDir,
         repositoryName: customInput.repositoryName || 'repository',
-        attachments: customInput.attachments || []
+        attachments: customInput.attachments || [],
+        conventions
       });
 
       const changedFiles: string[] = codeFix.changedFiles || [];
