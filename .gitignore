@@ -12,6 +12,8 @@ pnpm-debug.log*
 workspaces/
 .workspaces/
 .workspaces
+.base-clones/
+.base-clones
 temp/
 coverage/
 prisma/*.db

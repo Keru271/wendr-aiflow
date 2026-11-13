@@ -1,3 +1,4 @@
+
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -91,9 +92,8 @@ export class AntigravityCliService {
     if (!cliPath) return false;
 
     return new Promise((resolve) => {
-      execFile(cliPath, ['--help'], { timeout: 10000 }, (error, stdout, stderr) => {
-        const out = (stdout || '') + (stderr || '');
-        if (!error && (out.includes('Usage of agy') || out.includes('remote-control') || out.includes('Usage: agy') || out.includes('--help'))) {
+      execFile(cliPath, ['--help'], { timeout: 10000 }, (error, stdout) => {
+        if (!error && (stdout.includes('Usage of agy') || stdout.includes('remote-control') || stdout.includes('Usage: agy'))) {
           resolve(true);
         } else {
           resolve(false);
@@ -115,7 +115,7 @@ export class AntigravityCliService {
       try {
         const data = JSON.parse(fs.readFileSync(versionFile, 'utf8'));
         if (data.version) return data.version;
-      } catch {}
+      } catch { }
     }
 
     return 'Antigravity CLI v2.0';
@@ -273,13 +273,14 @@ export class AntigravityCliService {
       const git = simpleGit(workDir);
       const status = await git.status();
       status.files.forEach((f) => baselineFiles.add(f.path));
-    } catch {}
+    } catch { }
 
     const args = [
       '-p', prompt,
       '--dangerously-skip-permissions',
       '--output-format', 'json',
-      '--mode', 'auto'
+      '--mode', 'auto',
+      '--model', 'gemini-3.8-flash-low'
     ];
 
     const startTime = Date.now();
@@ -317,7 +318,7 @@ export class AntigravityCliService {
               const rawJson = responseText.slice(jsonStart, jsonEnd + 1);
               parsedJson = JSON.parse(rawJson);
             }
-          } catch {}
+          } catch { }
 
           const conversationId = parsedJson?.conversation_id || `agy_${Date.now()}`;
           const summary = parsedJson?.response || responseText.slice(0, 500) || `Fix applied autonomously by Antigravity CLI for ${input.issueKey}`;
@@ -362,4 +363,3 @@ export class AntigravityCliService {
 }
 
 export const agyCli = new AntigravityCliService();
-

@@ -187,7 +187,11 @@ export class WorkspaceManager {
 
       await git.addConfig('user.name', 'FixPilot Autonomous Agent');
       await git.addConfig('user.email', 'agent@fixpilot.ai');
-      await git.checkoutLocalBranch(branchName);
+      try {
+        await git.checkoutLocalBranch(branchName);
+      } catch {
+        await git.checkout(branchName);
+      }
     } catch (gitErr: any) {
       await logger.warn(`Native git initialization warning: ${gitErr.message}. Operating with filesystem workspace.`, {
         jobId: config.jobId,

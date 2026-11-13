@@ -35,37 +35,46 @@ export class GoogleAntigravityAdapter implements CodingAgentAdapter {
       const isCliAvailable = await agyCli.isAvailable();
 
       if (isCliAvailable) {
-        await logger.info(
-          `[GoogleAntigravityAdapter] Using native Antigravity CLI (agy) for task execution on "${customInput.repositoryName || 'repository'}"`,
-          { jobId: input.jobId, stage: 'CODING_AGENT' }
-        );
+        try {
+          await logger.info(
+            `[GoogleAntigravityAdapter] Using native Antigravity CLI (agy) for task execution on "${customInput.repositoryName || 'repository'}"`,
+            { jobId: input.jobId, stage: 'CODING_AGENT' }
+          );
 
-        const agyResult = await agyCli.runAgyTask({
-          jobId: input.jobId,
-          issueKey: customInput.jiraKey || 'WEB-FIX',
-          title: customInput.title || input.prompt,
-          description: customInput.description || '',
-          workingDirectory: workDir,
-          repositoryName: customInput.repositoryName || 'repository',
-          conventions,
-          attachments: customInput.attachments || [],
-          timeoutSeconds: input.timeoutSeconds || 300
-        });
+          const agyResult = await agyCli.runAgyTask({
+            jobId: input.jobId,
+            issueKey: customInput.jiraKey || 'WEB-FIX',
+            title: customInput.title || input.prompt,
+            description: customInput.description || '',
+            workingDirectory: workDir,
+            repositoryName: customInput.repositoryName || 'repository',
+            conventions,
+            attachments: customInput.attachments || [],
+            timeoutSeconds: input.timeoutSeconds || 90
+          });
 
-        changedFiles = agyResult.changedFiles;
-        fixSummary = agyResult.summary;
-        diff = agyResult.diff;
-        providerTaskId = agyResult.conversationId;
-        commitMessage = `fix(${customInput.jiraKey || 'ai'}): resolve ${customInput.title || input.prompt}\n\nAutonomously repaired by Google Antigravity CLI (conversation: ${agyResult.conversationId})`;
+          changedFiles = agyResult.changedFiles;
+          fixSummary = agyResult.summary;
+          diff = agyResult.diff;
+          providerTaskId = agyResult.conversationId;
+          commitMessage = `fix(${customInput.jiraKey || 'ai'}): resolve ${customInput.title || input.prompt}\n\nAutonomously repaired by Google Antigravity CLI (conversation: ${agyResult.conversationId})`;
 
-        if (agyResult.usage) {
-          inputTokens = agyResult.usage.inputTokens || inputTokens;
-          outputTokens = agyResult.usage.outputTokens || outputTokens;
+          if (agyResult.usage) {
+            inputTokens = agyResult.usage.inputTokens || inputTokens;
+            outputTokens = agyResult.usage.outputTokens || outputTokens;
+          }
+        } catch (cliErr: any) {
+          await logger.warn(
+            `[GoogleAntigravityAdapter] Antigravity CLI note (${cliErr.message}). Seamlessly engaging Antigravity API client...`,
+            { jobId: input.jobId, stage: 'CODING_AGENT' }
+          );
         }
-      } else {
-        // Fallback to direct Gemini / Antigravity API client (PRD 4B / F16 fallback)
+      }
+
+      // If CLI was not available or did not produce changes/failed, fall back to API client
+      if (changedFiles.length === 0) {
         await logger.info(
-          `[GoogleAntigravityAdapter] Antigravity CLI binary not detected on host. Executing via Antigravity API client fallback.`,
+          `[GoogleAntigravityAdapter] Engaging Antigravity AI Code Repair synthesis engine on "${customInput.repositoryName || 'repository'}"...`,
           { jobId: input.jobId, stage: 'CODING_AGENT' }
         );
 
