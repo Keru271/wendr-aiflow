@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db';
 import { antigravityClient } from '@/lib/antigravity-client';
+import { agyCli } from '@/lib/agy-cli';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,13 +13,22 @@ export async function GET() {
     // 2. Antigravity AI health & auth check (PRD F18)
     const aiHealth = await antigravityClient.checkHealth();
 
-    const isHealthy = aiHealth.status === 'connected';
+    // 3. Antigravity CLI check
+    const cliAvailable = await agyCli.isAvailable();
+    const cliPath = agyCli.resolveCliPath();
+
+    const isHealthy = aiHealth.status === 'connected' || cliAvailable;
 
     return NextResponse.json({
       status: isHealthy ? 'ok' : 'degraded',
       service: 'fixpilot',
       version: '1.0.0',
       database: 'connected',
+      antigravityCli: {
+        available: cliAvailable,
+        path: cliPath,
+        primary: cliAvailable
+      },
       antigravityAi: {
         status: aiHealth.status,
         model: aiHealth.primaryModel,
