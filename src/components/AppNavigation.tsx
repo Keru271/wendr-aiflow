@@ -149,34 +149,81 @@ export default function AppNavigation() {
       </aside>
 
       {/* ============================================================ */}
-      {/* 2. MOBILE TOP HEADER (Visible on small screens < md)        */}
+      {/* 2. MOBILE TOP HEADER (Sticky full-width on screens < md)    */}
       {/* ============================================================ */}
-      <header className="flex md:hidden h-14 px-3.5 border-b border-slate-800 bg-[#0c111e]/95 backdrop-blur-xl items-center justify-between sticky top-0 z-30">
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={() => setMobileDrawerOpen(true)}
-            className="p-1.5 rounded-lg bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
-            aria-label="Open Navigation Menu"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
+      <header className="flex md:hidden w-full border-b border-slate-800 bg-[#0c111e]/95 backdrop-blur-xl flex-col sticky top-0 z-30">
+        {/* Main Header Bar */}
+        <div className="h-14 px-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={() => setMobileDrawerOpen(true)}
+              className="p-1.5 rounded-lg bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
+              aria-label="Open Navigation Menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
 
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-sm">
-              <Bot className="w-4 h-4" />
+            <Link href="/" className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-sm">
+                <Bot className="w-4 h-4" />
+              </div>
+              <span className="font-bold text-sm text-white">FixPilot</span>
+            </Link>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Push notification toggle */}
+            <PushNotificationManager />
+
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Strict</span>
             </div>
-            <span className="font-bold text-sm text-white">FixPilot</span>
-          </Link>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Push notification toggle */}
-          <PushNotificationManager />
-
-          <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono font-medium">
+        {/* Mobile Quick-Navigation Horizontal Tab Strip */}
+        <div className="flex items-center gap-1.5 px-3 py-1.5 border-t border-slate-800/60 bg-[#080c16]/80 overflow-x-auto text-[11px] font-medium no-scrollbar">
+          <Link
+            href="/"
+            className={`px-2.5 py-1 rounded-lg shrink-0 transition-colors ${
+              isActive('/') ? 'bg-blue-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Overview
+          </Link>
+          <Link
+            href="/jobs"
+            className={`px-2.5 py-1 rounded-lg shrink-0 flex items-center gap-1 transition-colors ${
+              isActive('/jobs') ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <span>Fix Jobs</span>
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Strict Gate</span>
-          </div>
+          </Link>
+          <Link
+            href="/pull-requests"
+            className={`px-2.5 py-1 rounded-lg shrink-0 transition-colors ${
+              isActive('/pull-requests') ? 'bg-emerald-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Pull Requests
+          </Link>
+          <Link
+            href="/deployments"
+            className={`px-2.5 py-1 rounded-lg shrink-0 transition-colors ${
+              isActive('/deployments') ? 'bg-purple-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Deployments
+          </Link>
+          <button
+            onClick={() => setMobileDrawerOpen(true)}
+            className="px-2.5 py-1 rounded-lg shrink-0 text-slate-400 hover:text-slate-200 flex items-center gap-1"
+          >
+            <span>More</span>
+            <ChevronRight className="w-3 h-3" />
+          </button>
         </div>
       </header>
 
@@ -295,62 +342,6 @@ export default function AppNavigation() {
           </div>
         </div>
       )}
-
-      {/* ============================================================ */}
-      {/* 4. MOBILE BOTTOM APP DOCK (Visible on small screens < md)   */}
-      {/* ============================================================ */}
-      <nav className="flex md:hidden fixed bottom-0 inset-x-0 z-40 bg-[#090d18]/95 border-t border-slate-800/90 backdrop-blur-xl py-1.5 px-3 pb-safe items-center justify-around select-none">
-        <Link
-          href="/"
-          className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-lg transition-colors ${
-            isActive('/') ? 'text-blue-400 font-bold' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Activity className="w-4 h-4" />
-          <span className="text-[10px]">Overview</span>
-        </Link>
-
-        <Link
-          href="/jobs"
-          className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-lg relative transition-colors ${
-            isActive('/jobs') ? 'text-indigo-400 font-bold' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <div className="relative">
-            <Layers className="w-4 h-4" />
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 absolute -top-0.5 -right-0.5 animate-pulse" />
-          </div>
-          <span className="text-[10px]">Fix Jobs</span>
-        </Link>
-
-        <Link
-          href="/pull-requests"
-          className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-lg transition-colors ${
-            isActive('/pull-requests') ? 'text-emerald-400 font-bold' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <GitPullRequest className="w-4 h-4" />
-          <span className="text-[10px]">PRs</span>
-        </Link>
-
-        <Link
-          href="/deployments"
-          className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-lg transition-colors ${
-            isActive('/deployments') ? 'text-purple-400 font-bold' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Rocket className="w-4 h-4" />
-          <span className="text-[10px]">Deploy</span>
-        </Link>
-
-        <button
-          onClick={() => setMobileDrawerOpen(true)}
-          className="flex flex-col items-center gap-0.5 py-1 px-3 rounded-lg text-slate-400 hover:text-slate-200 transition-colors"
-        >
-          <Menu className="w-4 h-4" />
-          <span className="text-[10px]">Menu</span>
-        </button>
-      </nav>
     </>
   );
 }

@@ -63,14 +63,14 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
-      <body className="bg-[#090d16] text-slate-100 min-h-screen flex antialiased selection:bg-blue-600 selection:text-white">
+      <body className="bg-[#090d16] text-slate-100 min-h-screen antialiased selection:bg-blue-600 selection:text-white">
         <PWARegister />
         
-        {/* Responsive App Navigation (Desktop Sidebar, Mobile Top Header, Mobile Drawer, Mobile Bottom Dock) */}
+        {/* Responsive App Navigation (Desktop Sidebar, Mobile Top Header & Drawer) */}
         <AppNavigation />
 
         {/* Main Content Area */}
-        <div className="md:pl-64 flex-1 flex flex-col min-h-screen w-full">
+        <div className="md:pl-64 flex flex-col min-h-screen w-full">
           {/* Desktop Top Header (Hidden on Mobile) */}
           <header className="hidden md:flex h-16 border-b border-slate-800 bg-[#0d1322]/60 backdrop-blur-md px-6 lg:px-8 items-center justify-between sticky top-0 z-20">
             <div className="flex items-center gap-3">
@@ -100,7 +100,7 @@ export default function RootLayout({
           </header>
 
           {/* Page View Body */}
-          <main className="flex-1 p-3.5 sm:p-6 lg:p-8 pb-24 md:pb-8 max-w-7xl w-full mx-auto">
+          <main className="flex-1 p-3.5 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
             {children}
           </main>
         </div>

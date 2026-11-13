@@ -42,6 +42,15 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Hide scrollbars for clean horizontal tab strips */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* Pulse glow effects */
 .glow-primary {
   box-shadow: 0 0 20px -5px rgba(59, 130, 246, 0.4);

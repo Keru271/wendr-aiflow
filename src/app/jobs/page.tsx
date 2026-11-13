@@ -165,18 +165,18 @@ export default function JobsPage() {
           />
         </div>
 
-        <div className="flex items-center gap-1.5 text-xs">
+        <div className="flex items-center gap-1.5 text-xs overflow-x-auto no-scrollbar pb-0.5">
           {['ALL', 'ACTIVE', 'AWAITING', 'COMPLETED'].map((tab) => (
             <button
               key={tab}
               onClick={() => setFilter(tab)}
-              className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
+              className={`px-3 py-1.5 rounded-lg font-medium transition-colors shrink-0 ${
                 filter === tab
                   ? 'bg-blue-600 text-white'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
-              {tab === 'AWAITING' ? 'Human Gate Pending' : tab}
+              {tab === 'AWAITING' ? 'Gate Pending' : tab}
             </button>
           ))}
         </div>
