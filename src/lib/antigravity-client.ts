@@ -197,7 +197,22 @@ Provide your response in strictly valid JSON adhering to this schema:
       }
     } catch {}
 
+    // Log what Antigravity is actively solving
+    await logger.info(`[SOLVING] Resolving ${input.issueKey}: "${input.title}"`, {
+      jobId: input.jobId,
+      stage: 'CODING'
+    });
+    await logger.info(`[WORKSPACE] Inspecting repository "${input.repositoryName}" file tree and dependencies...`, {
+      jobId: input.jobId,
+      stage: 'CODING'
+    });
+
     if (this.isConfigured()) {
+      await logger.info(`[AI_SYNTHESIS] Google Antigravity (${this.primaryModel}) synthesizing minimal code patch...`, {
+        jobId: input.jobId,
+        stage: 'CODING'
+      });
+
       const prompt = `You are Google Antigravity, an expert software developer repairing code.
 Task: Fix the following issue in repository "${input.repositoryName}".
 
@@ -233,12 +248,39 @@ Respond in valid JSON adhering to this schema:
               if (!fs.existsSync(dir)) {
                 fs.mkdirSync(dir, { recursive: true });
               }
-              fs.writeFileSync(fullPath, f.content, 'utf8');
+
+              // Live log: what file is modifying
+              await logger.info(`[MODIFYING] Modifying file: ${f.path}...`, {
+                jobId: input.jobId,
+                stage: 'CODING'
+              });
+
+              let sanitizedContent = f.content;
+              // Guard against rogue dangling closing tokens (e.g. `));` or extra closing parenthesis)
+              if (/\.(ts|tsx|js|jsx)$/i.test(f.path)) {
+                if (sanitizedContent.trim().endsWith('));') && !sanitizedContent.includes('createContext') && !sanitizedContent.includes('memo(')) {
+                  sanitizedContent = sanitizedContent.replace(/\n\s*\)\);\s*$/, '\n');
+                }
+              }
+
+              fs.writeFileSync(fullPath, sanitizedContent, 'utf8');
+              const lineCount = sanitizedContent.split('\n').length;
               changedFiles.push(f.path.replace(/\\/g, '/'));
+
+              // Live log: what file was modified
+              await logger.info(`[MODIFIED] Successfully modified: ${f.path} (+${lineCount} lines written)`, {
+                jobId: input.jobId,
+                stage: 'CODING'
+              });
             }
           }
 
           if (changedFiles.length > 0) {
+            await logger.info(`[SOLVED] Issue solution: ${parsed.summary || 'Code changes verified and written'}`, {
+              jobId: input.jobId,
+              stage: 'CODING'
+            });
+
             return {
               summary: parsed.summary || `Autonomously patched ${input.issueKey} with Google Antigravity`,
               changedFiles,

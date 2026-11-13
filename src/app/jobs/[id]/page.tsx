@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import AntigravityLiveTerminal from '@/components/AntigravityLiveTerminal';
 import { 
   Bot, 
   ArrowLeft, 
@@ -112,9 +113,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     fetchJob();
-    const interval = setInterval(fetchJob, 3000);
+    const isJobActive = !['COMPLETED', 'FAILED', 'CANCELLED', 'ROLLED_BACK'].includes(job?.status);
+    const interval = setInterval(fetchJob, isJobActive ? 1500 : 4000);
     return () => clearInterval(interval);
-  }, [params.id]);
+  }, [params.id, job?.status]);
 
   const handleStartFix = async () => {
     setStartingFix(true);
@@ -577,6 +579,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           {actionMessage}
         </div>
       )}
+
+      {/* ANTIGRAVITY LIVE INTERACTIVE TERMINAL */}
+      <AntigravityLiveTerminal job={job} currentStage={currentStage} />
 
       {/* Two Column Layout: Left Column (Diagnosis + Code Diff + QA) | Right Column (PR + Staging + Logs) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
