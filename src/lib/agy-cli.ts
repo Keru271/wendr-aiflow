@@ -91,8 +91,9 @@ export class AntigravityCliService {
     if (!cliPath) return false;
 
     return new Promise((resolve) => {
-      execFile(cliPath, ['--help'], { timeout: 10000 }, (error, stdout) => {
-        if (!error && (stdout.includes('Usage of agy') || stdout.includes('remote-control') || stdout.includes('Usage: agy'))) {
+      execFile(cliPath, ['--help'], { timeout: 10000 }, (error, stdout, stderr) => {
+        const out = (stdout || '') + (stderr || '');
+        if (!error && (out.includes('Usage of agy') || out.includes('remote-control') || out.includes('Usage: agy') || out.includes('--help'))) {
           resolve(true);
         } else {
           resolve(false);
