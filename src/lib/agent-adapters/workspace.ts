@@ -225,6 +225,22 @@ export class WorkspaceManager {
     let pushSuccess = false;
     try {
       const git = simpleGit(dir);
+
+      // Ensure all pending/modified changes in workspace are staged and committed before pushing
+      try {
+        const status = await git.status();
+        if (status.files.length > 0) {
+          await git.add('.');
+          await git.commit(options?.commitMessage || `fix: autonomous code fix for ${branchName}`);
+          await logger.info(`[WORKSPACE] Committed ${status.files.length} pending change(s) before push for job ${jobId}`, {
+            jobId,
+            stage: 'WORKSPACE'
+          });
+        }
+      } catch (commitErr: any) {
+        await logger.warn(`[WORKSPACE] Pre-push commit note: ${commitErr.message}`, { jobId });
+      }
+
       if (authedRemoteUrl) {
         const remotes = await git.getRemotes();
         if (remotes.some((r) => r.name === 'origin')) {
@@ -429,6 +445,13 @@ export class WorkspaceManager {
           if (/\.(ts|tsx|js|jsx)$/i.test(entry.name)) {
             try {
               const code = fs.readFileSync(full, 'utf8');
+
+              // Automatically remove corrupted synthetic diff files if encountered
+              if (code.includes('diff --git') && (code.includes('--- a/') || code.includes('+++ b/'))) {
+                try { fs.unlinkSync(full); } catch {}
+                continue;
+              }
+
               const isTsx = /\.tsx$/i.test(entry.name);
               const isJsx = /\.jsx$/i.test(entry.name);
               const isJs = /\.js$/i.test(entry.name);

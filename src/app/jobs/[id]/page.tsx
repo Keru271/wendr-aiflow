@@ -152,7 +152,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         setActionMessage(`🚀 Google Antigravity has picked up this ticket. Starting investigation, code patch, and automated testing...`);
         await fetchJob();
       } else {
-        const errorMsg = data?.error || data?.message || res.statusText || 'Server error or request timed out';
+        const errorMsg = (data?.error && data.error !== 'undefined')
+          ? data.error
+          : (data?.message && data.message !== 'undefined')
+          ? data.message
+          : (res.statusText || `Server error (${res.status || 'unknown'})`);
         setActionMessage(`❌ Error starting Antigravity: ${errorMsg}`);
       }
     } catch (err: any) {

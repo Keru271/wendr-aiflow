@@ -210,6 +210,17 @@ export class GoogleAntigravityAdapter implements CodingAgentAdapter {
             let code = fs.readFileSync(fullPath, 'utf8');
             let modified = false;
 
+            // Remove corrupted synthetic patch files containing raw git diffs
+            if (code.includes('diff --git') && (code.includes('--- a/') || code.includes('+++ b/'))) {
+              try {
+                fs.unlinkSync(fullPath);
+                const rel = path.relative(workDir, fullPath).replace(/\\/g, '/');
+                if (!changedFiles.includes(rel)) changedFiles.push(rel);
+                void logger.warn(`[BUILD_FIX] Removed corrupted diff file mistakenly written as code: ${rel}`, { jobId: input.jobId });
+                return;
+              } catch {}
+            }
+
             // Remove rogue dangling tokens at the end of files (e.g. `));` or unmatched `}`)
             if (code.trim().endsWith('));') && !code.includes('createContext') && !code.includes('memo(')) {
               code = code.replace(/\n\s*\)\);\s*$/, '\n');
